@@ -1,0 +1,37 @@
+# ---- ⬇ Python ----
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Entornos virtuales
+venv/
+env/
+
+# ---- ⬇ Archivos del sistema ----
+.DS_Store
+Thumbs.db
+
+# ---- ⬇ Archivos generados por tu programa ----
+*.pdf
+*.csv
+*.xlsx
+
+# ---- ⬇ Configs temporales ----
+*.log
+
+# ---- ⬇ Cachés de Tkinter, PIL o CTk ----
+*.png
+*.jpg
+*.jpeg
+
+# ---- ⬇ Configuración de VSCode ----
+.vscode/
+
+# ---- ⬇ Carpetas de compilación o temporales ----
+build/
+dist/
+*.spec
+
+# ---- ⬇ Proyectos PyInstaller (si algún día empaquetas tu programa)
+*.exe
