@@ -5,7 +5,7 @@ from threading import Thread
 import math
 import io
 import os
-
+#solucionar problemas
 class CTkPDFViewer(customtkinter.CTkScrollableFrame):
     def __init__(self,
                  master: any,
