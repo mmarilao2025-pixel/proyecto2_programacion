@@ -2,7 +2,7 @@ import crud.menu_crud as menu_crud
 import crud.pedido_crud as pedido_crud
 from models import ClienteBD, PedidoBD #Models ORM
 from functools import reduce
-from typing import Dict, List, optional, dict
+from typing import Dict, List, Dict, Optional
 
 
 class Pedido:
@@ -27,25 +27,24 @@ class Pedido:
         self.menus.append(nuevo_menu)
 
     def calcular_total(self) -> float:
-        #calcula el subtotal por menu y luego sum todos.
+        #calcula el subtotal por menu y luego suma todos.
         return sum(map(
             lambda menu: menu.precio * menu.cantidad,
             self.menus
         ))
    
-    def _calcular_requerimientos(self) -> Dict:[str, float]:
-    
-        #obtener la receta de un menú específico
-        def obtener_receta_base (menu:CrearMenu)-> Dict[str, float]:
-          return menu.ingredientes
-
-        lista_requerimientos: list(map(
+    def _calcular_requerimientos(self) -> Dict[str, float]:
+       # obtener la receta de un menú específico
+        def obtener_receta_base(menu: CrearMenu) -> Dict[str, float]:
+            return menu.ingredientes
+       # map: Crea una lista de diccionarios de requerimientos por menú
+        lista_requerimientos: List[Dict[str, float]] = list(map(
             lambda menu: {
-                ing:cant * menu.cantidad
+                ing: cant * menu.cantidad
                 for ing, cant in obtener_receta_base(menu).items()
             },
             self.menus
-        ))              
+        ))            
 
         def combinar_requerimientos(acumulado: Dict[str, float], actual: Dict[str, float]) -> Dict[str, float]:
         
