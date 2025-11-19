@@ -1,7 +1,26 @@
--- SQLite
-CREATE TABLE ingredientes (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    nombre TEXT NOT NULL UNIQUE,
-    unidad TEXT,
-    cantidad REAL DEFAULT 0.0
-);
+--SQLite
+-- CREATE TABLE ingredientes (
+--     id INTEGER PRIMARY KEY AUTOINCREMENT,
+--     nombre TEXT NOT NULL UNIQUE,
+--     unidad TEXT,
+--     cantidad INTEGER DEFAULT 0
+-- );
+-- CREATE TABLE clientes (
+--     id INTEGER PRIMARY KEY AUTOINCREMENT,
+--     nombre TEXT NOT NULL,
+--     rut TEXT UNIQUE, 
+--     telefono TEXT
+-- );
+-- CREATE TABLE menus (
+--     id INTEGER PRIMARY KEY AUTOINCREMENT,
+--     nombre TEXT NOT NULL UNIQUE,
+--     precio REAL NOT NULL,
+--     categoria TEXT 
+-- );
+-- CREATE TABLE pedidos (
+--     id INTEGER PRIMARY KEY AUTOINCREMENT,
+--     cliente_id INTEGER, 
+--     fecha DATATIME,    
+--     total REAL,
+--     FOREIGN KEY(cliente_id) REFERENCES clientes(id)
+-- );
