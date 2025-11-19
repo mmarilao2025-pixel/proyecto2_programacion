@@ -77,14 +77,14 @@ class CTkGraphViewer(customtkinter.CTkToplevel):
         except FileNotFoundError:
             customtkinter.CTkLabel(
                 self,
-                text=f"❌ No se encontró el archivo:\n{self.graph_file_path}",
+                text=f"No se encontró el archivo:\n{self.graph_file_path}",
                 text_color="red"
             ).pack(pady=30)
 
         except Exception as e:
             customtkinter.CTkLabel(
                 self,
-                text=f"❌ Error al cargar el gráfico:\n{e}",
+                text=f"Error al cargar el gráfico:\n{e}",
                 text_color="red"
             ).pack(pady=30)
 
