@@ -1,3 +1,4 @@
+from sqlalchemy.orm import Session
 from models import ClienteBD, PedidoBD
 from functools import reduce
 from typing import Dict, List, Optional

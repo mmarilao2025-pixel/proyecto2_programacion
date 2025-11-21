@@ -102,16 +102,21 @@ class AplicacionConPestanas(ctk.CTk):
             CTkMessagebox(title="Error", message="El CSV debe tener columnas 'nombre', 'unidad' y 'cantidad'.", icon="warning")
             return
         
-        for _, row in self.df_csv.iterrows():
-            nombre = str(row['nombre']).strip()
-            unidad = str(row['unidad']).strip()
-            cantidad = int(row['cantidad'])
+        try:
+            # Usar el método agregar_ingrediente que ya funciona en Stock
+            for _, row in self.df_csv.iterrows():
+                nombre = str(row['nombre']).strip()
+                unidad = str(row['unidad']).strip()
+                cantidad = int(row['cantidad'])
+                
+                ingrediente = Ingrediente(nombre=nombre, unidad=unidad, cantidad=cantidad)
+                self.stock.agregar_ingrediente(ingrediente)
             
-            ingrediente = Ingrediente(nombre=nombre, unidad=unidad, cantidad=cantidad)
-            self.stock.agregar_ingrediente(ingrediente)
-
-        CTkMessagebox(title="Stock Actualizado", message="Ingredientes agregados al stock correctamente.", icon="info")
-        self.actualizar_treeview()  
+            CTkMessagebox(title="Stock Actualizado", message="Ingredientes agregados al stock correctamente.", icon="info")
+            self.actualizar_treeview()
+            
+        except Exception as e:
+            CTkMessagebox(title="Error", message=f"Error al agregar ingredientes al stock: {str(e)}", icon="cancel")
 
     def cargar_csv(self):
         archivo = filedialog.askopenfile(filetypes=[("Archivos CSV", "*.csv")])
