@@ -5,19 +5,22 @@
 --     unidad TEXT,
 --     cantidad INTEGER DEFAULT 0
 -- );
--- CREATE TABLE clientes (
---     id INTEGER PRIMARY KEY AUTOINCREMENT,
---     nombre TEXT NOT NULL,
---     rut TEXT UNIQUE, 
---     telefono TEXT
--- );
+
+CREATE TABLE clientes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nombre TEXT NOT NULL,
+    rut TEXT UNIQUE, 
+    telefono TEXT,
+    correo TEXT UNIQUE
+);
+
 -- CREATE TABLE menus (
 --     id INTEGER PRIMARY KEY AUTOINCREMENT,
 --     nombre TEXT NOT NULL UNIQUE,
 --     precio REAL NOT NULL,
 --     categoria TEXT 
 -- );
--- DROP TABLE IF EXISTS pedidos;
+--DROP TABLE IF EXISTS clientes;
 
 -- CREATE TABLE pedidos (
 --     id INTEGER PRIMARY KEY AUTOINCREMENT,
