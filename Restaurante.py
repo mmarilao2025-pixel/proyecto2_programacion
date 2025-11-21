@@ -74,6 +74,7 @@ class AplicacionConPestanas(ctk.CTk):
         self.tab2 = self.tabview.add("Pedido")
         self.tab5 = self.tabview.add("Boleta")
         self.tab6 = self.tabview.add("Gráfico")
+        self.tab7 = self.tabview.add("Clientes")
         
         self.configurar_pestana1()
         self.configurar_pestana2()
@@ -81,6 +82,7 @@ class AplicacionConPestanas(ctk.CTk):
         self._configurar_pestana_crear_menu()
         self._configurar_pestana_ver_boleta()
         self.configurar_pestana_grafico()
+        self.configurar_pestana_clientes()
 
     def configurar_pestana3(self):
         label = ctk.CTkLabel(self.tab3, text="Carga de archivo CSV")
@@ -586,9 +588,17 @@ class AplicacionConPestanas(ctk.CTk):
             db.close()
 
     def actualizar_lista_clientes(self):
-        """Actualiza la lista de clientes en el ComboBox"""
-        self.combo_clientes.configure(values=self.obtener_clientes_combo())
-        CTkMessagebox(title="Éxito", message="Lista de clientes actualizada", icon="info")
+        try:
+            nuevos_valores = self.obtener_clientes_combo()
+            self.combo_clientes.configure(values=nuevos_valores)
+            
+            # Seleccionar el primer cliente si hay disponibles
+            if nuevos_valores:
+                self.combo_clientes.set(nuevos_valores[0])
+                
+            CTkMessagebox(title="Éxito", message="Lista de clientes actualizada", icon="info")
+        except Exception as e:
+            CTkMessagebox(title="Error", message=f"Error al actualizar clientes: {str(e)}", icon="cancel")
 
     def obtener_rut_cliente_seleccionado(self):
         """Extrae el RUT del cliente seleccionado en el ComboBox"""
@@ -764,8 +774,192 @@ class AplicacionConPestanas(ctk.CTk):
             CTkMessagebox(title="Error", message=str(e), icon="warning")
         except Exception as e:
             CTkMessagebox(title="Error", message=f"Error al generar el gráfico: {str(e)}", icon="cancel")
+    
+    def agregar_nuevo_cliente(self):
+        """Ventana emergente para agregar nuevo cliente - CON VALIDACIÓN COMPLETA"""
+        ventana_cliente = ctk.CTkToplevel(self)
+        ventana_cliente.title("Agregar Nuevo Cliente")
+        ventana_cliente.geometry("400x350")
+        ventana_cliente.transient(self)
+        ventana_cliente.grab_set()
+
+        # Frame principal
+        frame_principal = ctk.CTkFrame(ventana_cliente)
+        frame_principal.pack(fill="both", expand=True, padx=20, pady=20)
+
+        # Campos del formulario
+        ctk.CTkLabel(frame_principal, text="RUT:*", font=("Helvetica", 12, "bold")).pack(pady=5)
+        entry_rut = ctk.CTkEntry(frame_principal, width=250, placeholder_text="Ej: 12345678-9")
+        entry_rut.pack(pady=5)
+
+        ctk.CTkLabel(frame_principal, text="Nombre:*", font=("Helvetica", 12, "bold")).pack(pady=5)
+        entry_nombre = ctk.CTkEntry(frame_principal, width=250, placeholder_text="Nombre completo")
+        entry_nombre.pack(pady=5)
+
+        ctk.CTkLabel(frame_principal, text="Correo:*", font=("Helvetica", 12, "bold")).pack(pady=5)
+        entry_correo = ctk.CTkEntry(frame_principal, width=250, placeholder_text="ejemplo@correo.com")
+        entry_correo.pack(pady=5)
+
+        ctk.CTkLabel(frame_principal, text="Teléfono:*", font=("Helvetica", 12, "bold")).pack(pady=5)
+        entry_telefono = ctk.CTkEntry(frame_principal, width=250, placeholder_text="+56 9 1234 5678")
+        entry_telefono.pack(pady=5)
+
+        # Etiqueta de campos obligatorios
+        ctk.CTkLabel(frame_principal, text="* Campos obligatorios", text_color="gray", font=("Helvetica", 10)).pack(pady=5)
+
+        def guardar_cliente():
+            rut = entry_rut.get().strip()
+            nombre = entry_nombre.get().strip()
+            correo = entry_correo.get().strip()
+            telefono = entry_telefono.get().strip()
+
+            # VALIDACIÓN COMPLETA DE TODOS LOS CAMPOS
+            errores = []
+            
+            if not rut:
+                errores.append("El RUT es obligatorio")
+            if not nombre:
+                errores.append("El nombre es obligatorio")
+            if not correo:
+                errores.append("El correo es obligatorio")
+            if not telefono:
+                errores.append("El teléfono es obligatorio")
+            
+            # Validar formato de correo básico
+            if correo and "@" not in correo:
+                errores.append("El correo debe tener un formato válido (debe contener @)")
+            
+            # Validar formato de RUT básico
+            if rut and "-" not in rut:
+                errores.append("El RUT debe tener formato: 12345678-9")
+
+            if errores:
+                mensaje_error = "Por favor corrige los siguientes errores:\n\n" + "\n".join(f"• {error}" for error in errores)
+                CTkMessagebox(title="Error de Validación", message=mensaje_error, icon="warning")
+                return
+
+            try:
+                db = next(get_session())
+                from crud.cliente_crud import ClienteCRUD
+                
+                # Crear cliente con TODOS los datos
+                ClienteCRUD.crear_cliente(db, nombre, rut, telefono, correo)
+                CTkMessagebox(title="Éxito", message="Cliente agregado correctamente con todos los datos", icon="info")
+                ventana_cliente.destroy()
+                self.actualizar_lista_clientes()
+                    
+            except ValueError as e:
+                CTkMessagebox(title="Error", message=str(e), icon="warning")
+            except Exception as e:
+                CTkMessagebox(title="Error", message=f"Error inesperado: {str(e)}", icon="cancel")
+            finally:
+                db.close()
+
+        # Botón para guardar
+        btn_guardar = ctk.CTkButton(
+            frame_principal, 
+            text="GUARDAR CLIENTE", 
+            command=guardar_cliente,
+            fg_color="#28a745",
+            text_color="white",
+            height=40,
+            font=("Helvetica", 14, "bold")
+        )
+        btn_guardar.pack(pady=20)
+
+    def ver_lista_clientes(self):
+        """Mostrar lista completa de clientes en una ventana"""
+        ventana_lista = ctk.CTkToplevel(self)
+        ventana_lista.title("Lista de Clientes")
+        ventana_lista.geometry("600x400")
+        ventana_lista.transient(self)
+
+        # Frame para la tabla
+        frame_tabla = ctk.CTkFrame(ventana_lista)
+        frame_tabla.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # Crear treeview
+        tree = ttk.Treeview(frame_tabla, columns=("RUT", "Nombre", "Email", "Teléfono"), show="headings")
+        tree.heading("RUT", text="RUT")
+        tree.heading("Nombre", text="Nombre")
+        tree.heading("Email", text="Email")
+        tree.heading("Teléfono", text="Teléfono")
+
+        tree.column("RUT", width=120)
+        tree.column("Nombre", width=150)
+        tree.column("Email", width=150)
+        tree.column("Teléfono", width=100)
+
+        # Scrollbar
+        scrollbar = ttk.Scrollbar(frame_tabla, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side="right", fill="y")
+        tree.pack(side="left", fill="both", expand=True)
+
+        # Cargar datos
+        try:
+            db = next(get_session())
+            from crud.cliente_crud import ClienteCRUD
+            clientes = ClienteCRUD.leer_clientes(db)
+            
+            for cliente in clientes:
+                tree.insert("", "end", values=(cliente.rut, cliente.nombre, cliente.email or "", cliente.telefono or ""))
+                
+            if not clientes:
+                tree.insert("", "end", values=("No hay clientes registrados", "", "", ""))
+                
+        except Exception as e:
+            CTkMessagebox(title="Error", message=f"Error al cargar clientes: {str(e)}", icon="cancel")
+        finally:
+            db.close()
+
+        # Botón cerrar
+        ctk.CTkButton(ventana_lista, text="Cerrar", command=ventana_lista.destroy).pack(pady=10)
+
+    def configurar_pestana_clientes(self):
+        """Configurar la pestaña de gestión de clientes"""
+        label = ctk.CTkLabel(self.tab7, text="Gestión de Clientes", font=("Helvetica", 16, "bold"))
+        label.pack(pady=20)
+
+        boton_agregar_cliente = ctk.CTkButton(
+            self.tab7,
+            text="Agregar Nuevo Cliente",
+            command=self.agregar_nuevo_cliente
+        )
+        boton_agregar_cliente.pack(pady=10)
+
+        boton_ver_clientes = ctk.CTkButton(
+            self.tab7,
+            text="Ver Lista de Clientes",
+            command=self.ver_lista_clientes
+        )
+        boton_ver_clientes.pack(pady=10)
 
 
+    def verificar_modelo_cliente(self):
+        """Función para verificar la estructura del modelo ClienteBD"""
+        try:
+            db = next(get_session())
+            from models import ClienteBD
+            
+            # Verificar las columnas del modelo
+            print("Columnas de ClienteBD:")
+            for col in ClienteBD.__table__.columns:
+                print(f"  - {col.name} ({col.type})")
+                
+            # Verificar la estructura de la tabla en la BD
+            result = db.execute("PRAGMA table_info(clientes)")
+            print("\nColumnas en la tabla 'clientes' de la BD:")
+            for col in result:
+                print(f"  - {col[1]} ({col[2]})")
+                
+        except Exception as e:
+            print(f"Error al verificar modelo: {e}")
+        finally:
+            db.close()
+
+    # Llama a esta función al inicio de tu aplicación para diagnosticar
+    # self.verificar_modelo_cliente()
 
 
 if __name__ == "__main__":
