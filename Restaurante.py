@@ -15,6 +15,7 @@ from menu_pdf import create_menu_pdf
 from ctk_pdf_viewer import CTkPDFViewer
 import os
 from tkinter.font import nametofont
+from grafico_ingredientes import generar_grafico_ingredientes, CTkGraphViewer
 
 
 class AplicacionConPestanas(ctk.CTk):
@@ -71,12 +72,14 @@ class AplicacionConPestanas(ctk.CTk):
         self.tab4 = self.tabview.add("Carta restorante")  
         self.tab2 = self.tabview.add("Pedido")
         self.tab5 = self.tabview.add("Boleta")
+        self.tab6 = self.tabview.add("Gráfico")
         
         self.configurar_pestana1()
         self.configurar_pestana2()
         self.configurar_pestana3()
         self._configurar_pestana_crear_menu()
         self._configurar_pestana_ver_boleta()
+        self.configurar_pestana_grafico()
 
     def configurar_pestana3(self):
         label = ctk.CTkLabel(self.tab3, text="Carga de archivo CSV")
@@ -655,6 +658,50 @@ class AplicacionConPestanas(ctk.CTk):
             if self.menu_disponible(menu):
                 self.crear_tarjeta(menu)
                 self.menus_creados.add(menu.nombre)
+
+    def configurar_pestana_grafico(self):
+        frame = ctk.CTkFrame(self.tab6)
+        frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        label = ctk.CTkLabel(frame, text="Gráfico de Ingredientes", font=("Helvetica", 16, "bold"))
+        label.pack(pady=20)
+
+        # Botón para generar el gráfico
+        boton_generar = ctk.CTkButton(
+            frame, 
+            text="Generar Gráfico de Stock", 
+            command=self.generar_grafico_stock
+        )
+        boton_generar.pack(pady=10)
+
+        # Etiqueta informativa
+        info_label = ctk.CTkLabel(
+            frame, 
+            text="Haz clic en el botón para generar un gráfico con los ingredientes en stock",
+            text_color="gray"
+        )
+        info_label.pack(pady=5)
+
+    def generar_grafico_stock(self):
+        try:
+            # 1. Preparar datos del stock para el gráfico
+            datos_grafico = {}
+            for ingrediente in self.stock.lista_ingredientes:
+                datos_grafico[ingrediente.nombre] = ingrediente.cantidad
+            
+            # 2. Generar el gráfico usando tu función
+            ruta_grafico = generar_grafico_ingredientes(datos_grafico)
+            
+            # 3. Mostrar el gráfico en ventana emergente
+            ventana_grafico = CTkGraphViewer(self, ruta_grafico, title="Gráfico de Stock - Ingredientes")
+            ventana_grafico.focus()
+            
+        except ValueError as e:
+            CTkMessagebox(title="Error", message=str(e), icon="warning")
+        except Exception as e:
+            CTkMessagebox(title="Error", message=f"Error al generar el gráfico: {str(e)}", icon="cancel")
+
+
 
 
 if __name__ == "__main__":
