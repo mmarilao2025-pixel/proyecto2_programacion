@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 from models import IngredienteBD
-import crud.ingrediente_crud as ingrediente_crud
+from crud.ingrediente_crud import IngredienteCRUD  # CAMBIADO: importar la clase directamente
 from conexion import get_session
 from typing import List, Dict
 from Ingrediente import Ingrediente
@@ -23,19 +23,19 @@ class Stock:
         
         db = self._get_db_session()
         try:
-            # Buscar si ya existe
-            ingrediente_existente = ingrediente_crud.leer_ingrediente_por_nombre(db, ingrediente.nombre)
+            # Buscar si ya existe - CORREGIDO
+            ingrediente_existente = IngredienteCRUD.leer_ingrediente_por_nombre(db, ingrediente.nombre)
             
             if ingrediente_existente:
                 # Actualizar cantidad sumando
                 nueva_cantidad = ingrediente_existente.cantidad + int(ingrediente.cantidad)
-                ingrediente_crud.actualizar_ingrediente(
+                IngredienteCRUD.actualizar_ingrediente(
                     db, ingrediente.nombre, nueva_cantidad, ingrediente.unidad
                 )
                 print(f"Stock de '{ingrediente.nombre}' actualizado a {nueva_cantidad}.")
             else:
-                # Crear nuevo
-                ingrediente_crud.crear_ingrediente(
+                # Crear nuevo - CORREGIDO
+                IngredienteCRUD.crear_ingrediente(
                     db, ingrediente.nombre, ingrediente.unidad, int(ingrediente.cantidad)
                 )
                 print(f"Ingrediente '{ingrediente.nombre}' agregado con cantidad {ingrediente.cantidad}.")
@@ -53,7 +53,8 @@ class Stock:
         """Elimina ingrediente por nombre"""
         db = self._get_db_session()
         try:
-            resultado = ingrediente_crud.eliminar_ingrediente(db, nombre)
+            # CORREGIDO
+            resultado = IngredienteCRUD.eliminar_ingrediente(db, nombre)
             db.commit()
             if resultado:
                 print(f"Ingrediente '{nombre}' eliminado del stock.")
@@ -68,7 +69,8 @@ class Stock:
         """Busca un ingrediente por su nombre en la base de datos"""
         db = self._get_db_session()
         try:
-            ingrediente_db = ingrediente_crud.leer_ingrediente_por_nombre(db, nombre_ingrediente)
+            # CORREGIDO
+            ingrediente_db = IngredienteCRUD.leer_ingrediente_por_nombre(db, nombre_ingrediente)
             if ingrediente_db:
                 return Ingrediente(
                     nombre=ingrediente_db.nombre,
@@ -83,7 +85,8 @@ class Stock:
         """Obtiene todos los ingredientes para mostrar en treeview"""
         db = self._get_db_session()
         try:
-            ingredientes_db = ingrediente_crud.leer_ingredientes(db)
+            # CORREGIDO
+            ingredientes_db = IngredienteCRUD.leer_ingredientes(db)
             # Convertir IngredienteBD a Ingrediente
             return [
                 Ingrediente(
@@ -98,33 +101,32 @@ class Stock:
 
     @property
     def lista_ingredientes(self):
-        """Propiedad que obtiene ingredientes desde BD (para compatibilidad con código existente)"""
         return self.obtener_todos_los_ingredientes()
 
     def descontar_stock(self, requerimientos: Dict[str, float]) -> bool:
-        """Verifica y descuenta el stock según los requerimientos del menú"""
         db = self._get_db_session()
         try:
-            # Verificar stock suficiente
+            # Para valores negativos, estamos RESTAURANDO stock, así que no verificar
             for nombre_ing, cantidad_necesaria in requerimientos.items():
-                ingrediente = ingrediente_crud.leer_ingrediente_por_nombre(db, nombre_ing)
-                if not ingrediente or ingrediente.cantidad < cantidad_necesaria:
-                    print(f"Stock insuficiente para '{nombre_ing}'. Requerido: {cantidad_necesaria}, Disponible: {ingrediente.cantidad if ingrediente else 0}")
-                    return False
+                if cantidad_necesaria > 0:  # Solo verificar stock si estamos descontando
+                    ingrediente = IngredienteCRUD.leer_ingrediente_por_nombre(db, nombre_ing)
+                    if not ingrediente or ingrediente.cantidad < cantidad_necesaria:
+                        print(f"Stock insuficiente para '{nombre_ing}'. Requerido: {cantidad_necesaria}, Disponible: {ingrediente.cantidad if ingrediente else 0}")
+                        return False
             
-            # Descontar stock
+            # Descontar stock (o restaurar si es negativo)
             for nombre_ing, cantidad_necesaria in requerimientos.items():
-                ingrediente = ingrediente_crud.leer_ingrediente_por_nombre(db, nombre_ing)
-                nueva_cantidad = ingrediente.cantidad - cantidad_necesaria
-                ingrediente_crud.actualizar_ingrediente(db, nombre_ing, nueva_cantidad)
+                ingrediente = IngredienteCRUD.leer_ingrediente_por_nombre(db, nombre_ing)
+                nueva_cantidad = ingrediente.cantidad - cantidad_necesaria  # Si cantidad_necesaria es negativo, esto SUMA
+                IngredienteCRUD.actualizar_ingrediente(db, nombre_ing, nueva_cantidad)
             
             db.commit()
-            print("Descuento de stock completado exitosamente.")
+            print("Operación de stock completada exitosamente.")
             return True
             
         except Exception as e:
             db.rollback()
-            print(f"Error crítico al descontar stock: {e}")
+            print(f"Error crítico al actualizar stock: {e}")
             return False
         finally:
             db.close()
@@ -133,7 +135,6 @@ class Stock:
         """Muestra todo el stock disponible desde BD"""
         ingredientes = self.obtener_todos_los_ingredientes()
         
-        # USO DE MAP Y LAMBDA (requisito de pauta)
         datos_stock = list(map(
             lambda i: f" Ingrediente: {i.nombre}, Cantidad: {i.cantidad}", 
             ingredientes

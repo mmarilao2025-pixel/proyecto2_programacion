@@ -15,7 +15,9 @@ from menu_pdf import create_menu_pdf
 from ctk_pdf_viewer import CTkPDFViewer
 import os
 from tkinter.font import nametofont
-
+from grafico_ingredientes import generar_grafico_ingredientes, CTkGraphViewer
+from conexion import get_session
+from grafico_ingredientes import GeneradorGraficos
 
 class AplicacionConPestanas(ctk.CTk):
     def __init__(self):
@@ -34,12 +36,30 @@ class AplicacionConPestanas(ctk.CTk):
         self.crear_pestanas()
 
     def actualizar_treeview(self):
-
+        # Limpiar el treeview
         for item in self.tree.get_children():
             self.tree.delete(item)
 
-        for ingrediente in self.stock.lista_ingredientes:
-            self.tree.insert("", "end", values=(ingrediente.nombre,ingrediente.unidad, ingrediente.cantidad))    
+        # Cargar ingredientes desde la base de datos
+        try:
+            db = next(get_session())
+            from crud.ingrediente_crud import IngredienteCRUD
+            ingredientes_bd = IngredienteCRUD.leer_ingredientes(db)
+            
+            # Actualizar la lista en memoria
+            self.stock.lista_ingredientes = [
+                Ingrediente(nombre=ing.nombre, unidad=ing.unidad, cantidad=ing.cantidad)
+                for ing in ingredientes_bd
+            ]
+            
+            # Insertar los ingredientes actualizados
+            for ingrediente in self.stock.lista_ingredientes:
+                self.tree.insert("", "end", values=(ingrediente.nombre, ingrediente.unidad, ingrediente.cantidad))
+                
+        except Exception as e:
+            CTkMessagebox(title="Error", message=f"Error al cargar ingredientes: {str(e)}", icon="cancel")
+        finally:
+            db.close()
 
     def on_tab_change(self):
         selected_tab = self.tabview.get()
@@ -71,12 +91,16 @@ class AplicacionConPestanas(ctk.CTk):
         self.tab4 = self.tabview.add("Carta restorante")  
         self.tab2 = self.tabview.add("Pedido")
         self.tab5 = self.tabview.add("Boleta")
+        self.tab6 = self.tabview.add("Gráfico")
+        self.tab7 = self.tabview.add("Clientes")
         
         self.configurar_pestana1()
         self.configurar_pestana2()
         self.configurar_pestana3()
         self._configurar_pestana_crear_menu()
         self._configurar_pestana_ver_boleta()
+        self.configurar_pestana_grafico()
+        self.configurar_pestana_clientes()
 
     def configurar_pestana3(self):
         label = ctk.CTkLabel(self.tab3, text="Carga de archivo CSV")
@@ -102,16 +126,48 @@ class AplicacionConPestanas(ctk.CTk):
             CTkMessagebox(title="Error", message="El CSV debe tener columnas 'nombre', 'unidad' y 'cantidad'.", icon="warning")
             return
         
-        for _, row in self.df_csv.iterrows():
-            nombre = str(row['nombre']).strip()
-            unidad = str(row['unidad']).strip()
-            cantidad = int(row['cantidad'])
+        try:
+            db = next(get_session())
+            from crud.ingrediente_crud import IngredienteCRUD
             
-            ingrediente = Ingrediente(nombre=nombre, unidad=unidad, cantidad=cantidad)
-            self.stock.agregar_ingrediente(ingrediente)
-
-        CTkMessagebox(title="Stock Actualizado", message="Ingredientes agregados al stock correctamente.", icon="info")
-        self.actualizar_treeview()  
+            ingredientes_actualizados = 0
+            ingredientes_nuevos = 0
+            
+            for _, row in self.df_csv.iterrows():
+                nombre = str(row['nombre']).strip()
+                unidad = str(row['unidad']).strip()
+                cantidad = int(row['cantidad'])
+                
+                # Verificar si ya existe en la base de datos
+                ingrediente_existente = IngredienteCRUD.leer_ingrediente_por_nombre(db, nombre)
+                
+                if ingrediente_existente:
+                    # Sumar a la cantidad existente
+                    nueva_cantidad = ingrediente_existente.cantidad + cantidad
+                    IngredienteCRUD.actualizar_ingrediente(db, nombre, nueva_cantidad=nueva_cantidad)
+                    
+                    # Actualizar en la lista en memoria
+                    for ing in self.stock.lista_ingredientes:
+                        if ing.nombre.lower() == nombre.lower():
+                            ing.cantidad = nueva_cantidad
+                            break
+                    
+                    ingredientes_actualizados += 1
+                else:
+                    # Crear nuevo ingrediente
+                    ingrediente = Ingrediente(nombre=nombre, unidad=unidad, cantidad=cantidad)
+                    IngredienteCRUD.crear_ingrediente(db, nombre, unidad, cantidad)
+                    self.stock.agregar_ingrediente(ingrediente)
+                    ingredientes_nuevos += 1
+            
+            mensaje = f"Stock actualizado:\n- {ingredientes_actualizados} ingredientes actualizados\n- {ingredientes_nuevos} ingredientes nuevos"
+            CTkMessagebox(title="Stock Actualizado", message=mensaje, icon="info")
+            self.actualizar_treeview()
+            
+        except Exception as e:
+            CTkMessagebox(title="Error", message=f"Error al agregar ingredientes al stock: {str(e)}", icon="cancel")
+        finally:
+            db.close()
 
     def cargar_csv(self):
         archivo = filedialog.askopenfile(filetypes=[("Archivos CSV", "*.csv")])
@@ -235,7 +291,7 @@ class AplicacionConPestanas(ctk.CTk):
             CTkMessagebox(title="Error", message=f"No se pudo mostrar la boleta.\n{e}", icon="warning")
 
     def configurar_pestana1(self):
-        # Dividir la Pestaña 1 en dos frames
+        # Dividir la Pestaña 1 en two frames
         frame_formulario = ctk.CTkFrame(self.tab1)
         frame_formulario.pack(side="left", fill="both", expand=True, padx=10, pady=10)
 
@@ -280,6 +336,7 @@ class AplicacionConPestanas(ctk.CTk):
         # Agrega un nuevo ingrediente al stock desde el formulario
         nombre = self.entry_nombre.get().strip()
         cantidad_str = self.entry_cantidad.get().strip()
+        
         # Validaciones del formulario
         if not nombre:
             CTkMessagebox(title="Error", message="El nombre del ingrediente no puede estar vacío.", icon="warning")
@@ -304,70 +361,147 @@ class AplicacionConPestanas(ctk.CTk):
             CTkMessagebox(title="Error", message="La cantidad debe ser un número entero válido.", icon="warning")
             return
         
-        # Crea y agrega el ingrediente ingresado 
-        nuevo_ingrediente = Ingrediente(
-            nombre=nombre,
-            unidad="unid",  # Siempre "unid"
-            cantidad=cantidad
-        )
-        self.stock.agregar_ingrediente(nuevo_ingrediente)
-        
-        # Limpia los campos del formulario
-        self.entry_nombre.delete(0, 'end')
-        self.entry_cantidad.delete(0, 'end')
-        # Actualiza el treeview
-        self.actualizar_treeview()
-        CTkMessagebox(title="Éxito", message=f"Ingrediente '{nombre}' agregado correctamente.", icon="info")
-
+        # AGREGAR ESTA PARTE PARA GUARDAR EN LA BASE DE DATOS
+        try:
+            db = next(get_session())
+            from crud.ingrediente_crud import IngredienteCRUD
+            
+            # Verificar si el ingrediente ya existe en la base de datos
+            ingrediente_existente = IngredienteCRUD.leer_ingrediente_por_nombre(db, nombre)
+            
+            if ingrediente_existente:
+                # SUMAR a la cantidad existente
+                nueva_cantidad = ingrediente_existente.cantidad + cantidad
+                IngredienteCRUD.actualizar_ingrediente(db, nombre, nueva_cantidad=nueva_cantidad)
+                
+                # Actualizar en la lista en memoria
+                for ing in self.stock.lista_ingredientes:
+                    if ing.nombre.lower() == nombre.lower():
+                        ing.cantidad = nueva_cantidad
+                        break
+                
+                mensaje = f"Se sumaron {cantidad} unidades a '{nombre}'. Total: {nueva_cantidad}"
+            else:
+                # Crear nuevo ingrediente
+                nuevo_ingrediente = Ingrediente(
+                    nombre=nombre,
+                    unidad="unid",
+                    cantidad=cantidad
+                )
+                IngredienteCRUD.crear_ingrediente(db, nombre, "unid", cantidad)
+                self.stock.agregar_ingrediente(nuevo_ingrediente)
+                mensaje = f"Ingrediente '{nombre}' agregado correctamente con {cantidad} unidades."
+            
+            # Limpia los campos del formulario
+            self.entry_nombre.delete(0, 'end')
+            self.entry_cantidad.delete(0, 'end')
+            
+            # Actualiza el treeview
+            self.actualizar_treeview()
+            
+            CTkMessagebox(title="Éxito", message=mensaje, icon="info")
+            
+        except ValueError as e:
+            CTkMessagebox(title="Error", message=str(e), icon="warning")
+        except Exception as e:
+            CTkMessagebox(title="Error", message=f"Error al guardar en la base de datos: {str(e)}", icon="cancel")
+        finally:
+            db.close()
 
     def tarjeta_click(self, event, menu):
-        # Verificar stock suficiente para 1 menú
+        # Calcular cuántos de este menú ya están en el pedido
+        cantidad_en_pedido = 0
+        for item in self.pedido.menus:
+            if item.nombre == menu.nombre:
+                cantidad_en_pedido = item.cantidad
+                break
+        
+        # Verificar stock suficiente para (cantidad_en_pedido + 1) menús
         suficiente_stock = True
+        ingredientes_insuficientes = []
+        
         for ingrediente_necesario in menu.ingredientes:
             nombre_necesario = ingrediente_necesario.nombre.strip().lower()
             unidad_necesaria = ingrediente_necesario.unidad.strip().lower()
-            cantidad_necesaria = int(ingrediente_necesario.cantidad)
+            cantidad_necesaria_por_menu = int(ingrediente_necesario.cantidad)
+            cantidad_total_necesaria = cantidad_necesaria_por_menu * (cantidad_en_pedido + 1)
 
             encontrado = False
             for ingrediente_stock in self.stock.lista_ingredientes:
                 nombre_stock = ingrediente_stock.nombre.strip().lower()
                 unidad_stock = ingrediente_stock.unidad.strip().lower()
+                
                 if nombre_necesario == nombre_stock and unidad_necesaria == unidad_stock:
                     encontrado = True
-                    if int(ingrediente_stock.cantidad) < cantidad_necesaria:
+                    if int(ingrediente_stock.cantidad) < cantidad_total_necesaria:
                         suficiente_stock = False
+                        ingredientes_insuficientes.append({
+                            'nombre': nombre_necesario,
+                            'necesario': cantidad_total_necesaria,
+                            'disponible': int(ingrediente_stock.cantidad)
+                        })
                     break
+            
             if not encontrado:
                 suficiente_stock = False
+                ingredientes_insuficientes.append({
+                    'nombre': nombre_necesario,
+                    'necesario': cantidad_total_necesaria,
+                    'disponible': 0
+                })
+            
             if not suficiente_stock:
                 break
 
         if suficiente_stock:
-            # Descontar los ingredientes correspondientes a 1 menú
+            # NUEVO: Descontar los ingredientes usando el método del Stock que actualiza la BD
+            requerimientos = {}
             for ingrediente_necesario in menu.ingredientes:
-                for ingrediente_stock in self.stock.lista_ingredientes:
-                    if ingrediente_stock.nombre.strip().lower() == ingrediente_necesario.nombre.strip().lower() \
-                    and ingrediente_stock.unidad.strip().lower() == ingrediente_necesario.unidad.strip().lower():
-                        ingrediente_stock.cantidad -= int(ingrediente_necesario.cantidad)
-                        break
+                nombre_ing = ingrediente_necesario.nombre.strip()
+                cantidad_necesaria = int(ingrediente_necesario.cantidad)
+                requerimientos[nombre_ing] = cantidad_necesaria
+            
+            # Usar el método descontar_stock que actualiza la base de datos
+            if self.stock.descontar_stock(requerimientos):
+                # Agregar 1 menú al pedido
+                menu_a_agregar = CrearMenu(menu.nombre, menu.ingredientes, menu.precio, getattr(menu, "icono_path", None))
+                self.pedido.agregar_menu(menu_a_agregar)
 
-            # Agregar 1 menú al pedido
-            menu_a_agregar = CrearMenu(menu.nombre, menu.ingredientes, menu.precio, getattr(menu, "icono_path", None))
-            self.pedido.agregar_menu(menu_a_agregar)
+                # Actualizar Treeview y total
+                self.actualizar_treeview_pedido()
+                total = self.pedido.calcular_total()
+                self.label_total.configure(text=f"Total: ${total:.2f}")
+                
+                # Actualizar disponibilidad de tarjetas
+                self.cargar_tarjetas_disponibles()
 
-            # Actualizar Treeview y total
-            self.actualizar_treeview_pedido()
-            total = self.pedido.calcular_total()
-            self.label_total.configure(text=f"Total: ${total:.2f}")
+                # 🔥 Actualizar la pestaña de Stock inmediatamente
+                self.actualizar_treeview()
+                
+                CTkMessagebox(
+                    title="Éxito",
+                    message=f"'{menu.nombre}' agregado al pedido. Stock actualizado.",
+                    icon="info"
+                )
+            else:
+                CTkMessagebox(
+                    title="Error",
+                    message="No se pudo actualizar el stock en la base de datos.",
+                    icon="cancel"
+                )
+                
         else:
+            # Mostrar mensaje detallado de qué ingredientes faltan
+            mensaje = f"No hay suficientes ingredientes para preparar '{menu.nombre}'.\n\n"
+            for ing in ingredientes_insuficientes:
+                mensaje += f"- {ing['nombre']}: Necesario {ing['necesario']}, Disponible {ing['disponible']}\n"
+            
             CTkMessagebox(
                 title="Stock Insuficiente",
-                message=f"No hay suficientes ingredientes para preparar el menú '{menu.nombre}'.",
+                message=mensaje,
                 icon="warning"
             )
 
-
-    
     def cargar_icono_menu(self, ruta_icono):
         imagen = Image.open(ruta_icono)
         icono_menu = ctk.CTkImage(imagen, size=(64, 64))
@@ -386,11 +520,12 @@ class AplicacionConPestanas(ctk.CTk):
         item = seleccion[0]
         valores = self.treeview_menu.item(item, 'values')
         nombre_menu = valores[0]
+        cantidad_eliminar = int(valores[1])
 
         # Confirmar eliminación
         respuesta = CTkMessagebox(
             title="Confirmar Eliminación",
-            message=f"¿Estás seguro de que quieres eliminar '{nombre_menu}' del pedido?",
+            message=f"¿Estás seguro de que quieres eliminar {cantidad_eliminar} '{nombre_menu}' del pedido?",
             icon="question",
             option_1="Cancelar",
             option_2="Eliminar"
@@ -399,25 +534,36 @@ class AplicacionConPestanas(ctk.CTk):
         if respuesta.get() != "Eliminar":
             return
 
-        # Buscar y eliminar la primera coincidencia del menú en el pedido
+        # Buscar el menú en el pedido
+        menu_encontrado = None
         for i, menu in enumerate(self.pedido.menus):
             if menu.nombre == nombre_menu:
-                # Restaurar los ingredientes al stock
-                for ingrediente_necesario in menu.ingredientes:
-                    for ingrediente_stock in self.stock.lista_ingredientes:
-                        if ingrediente_stock.nombre.strip().lower() == ingrediente_necesario.nombre.strip().lower():
-                            ingrediente_stock.cantidad += int(ingrediente_necesario.cantidad)
-                            break
-                # Eliminar menú del pedido
-                self.pedido.menus.pop(i)
+                menu_encontrado = menu
                 break
 
-        # Actualizar Treeview y total
+        if menu_encontrado:
+            # SOLUCIÓN: Usar el método descontar_stock pero con cantidades NEGATIVAS para restaurar
+            requerimientos_restaurar = {}
+            for ingrediente_necesario in menu_encontrado.ingredientes:
+                nombre_ing = ingrediente_necesario.nombre.strip()
+                # Cantidad NEGATIVA para restaurar (esto suma en lugar de restar)
+                cantidad_restaurar = -int(ingrediente_necesario.cantidad) * cantidad_eliminar
+                requerimientos_restaurar[nombre_ing] = cantidad_restaurar
+            
+            # Usar el mismo método que ya funciona bien para actualizar la BD
+            self.stock.descontar_stock(requerimientos_restaurar)
+            
+            # Eliminar el menú del pedido
+            self.pedido.menus = [m for m in self.pedido.menus if m.nombre != nombre_menu]
+
+        # Actualizar vistas
         self.actualizar_treeview_pedido()
         total = self.pedido.calcular_total()
         self.label_total.configure(text=f"Total: ${total:.2f}")
-        CTkMessagebox(title="Éxito", message=f"Menú '{nombre_menu}' eliminado del pedido.", icon="info")
-
+        self.cargar_tarjetas_disponibles()
+        self.actualizar_treeview()
+        
+        CTkMessagebox(title="Éxito", message=f"{cantidad_eliminar} '{nombre_menu}' eliminados del pedido.", icon="info")
 
     def generar_boleta(self):
         if not self.pedido.menus:
@@ -425,20 +571,36 @@ class AplicacionConPestanas(ctk.CTk):
             return
 
         try:
-            boleta_facade = BoletaFacade(self.pedido)  # crea la instancia de boleta con el pedido actual
-            pdf_path = boleta_facade.generar_boleta()  # total y generar la boleta
+            # OBTENER CLIENTE SELECCIONADO
+            cliente_rut = self.obtener_rut_cliente_seleccionado()
+            
+            # PROCESAR COMPRA CON CLIENTE
+            pedido_procesado = self.pedido.procesar_compra(cliente_rut)
+            
+            if not pedido_procesado:
+                CTkMessagebox(title="Error", message="No se pudo procesar la compra. Verifique el stock.", icon="cancel")
+                return
 
-            # Notificar al usuario
-            CTkMessagebox(title="Boleta Generada",message="Boleta generada en: boleta.pdf",icon="info")
+            # GENERAR BOLETA
+            boleta_facade = BoletaFacade(self.pedido)
+            pdf_path = boleta_facade.generar_boleta()
 
-            # Limpiar el pedido después de generar la boleta
+            # Mostrar mensaje de éxito con info del cliente
+            cliente_nombre = self.combo_clientes.get().split("(")[0].strip()
+            CTkMessagebox(
+                title="Boleta Generada", 
+                message=f"Boleta para {cliente_nombre} generada en: boleta.pdf", 
+                icon="info"
+            )
+
+            # Limpiar pedido
             self.pedido.menus = []
             self.actualizar_treeview_pedido()
-            self.label_total.configure(text=f"Total: $0.00")
+            self.label_total.configure(text="Total: $0.00")
+            self.cargar_tarjetas_disponibles()  # Actualizar disponibilidad
 
         except Exception as e:
             CTkMessagebox(title="Error al Generar Boleta", message=f"Ocurrió un error al generar la boleta.\n{e}", icon="cancel")
-
 
     def configurar_pestana2(self):
         frame_superior = ctk.CTkFrame(self.tab2)
@@ -468,6 +630,60 @@ class AplicacionConPestanas(ctk.CTk):
 
         self.boton_generar_boleta=ctk.CTkButton(frame_inferior,text="Generar Boleta",command=self.generar_boleta)
         self.boton_generar_boleta.pack(side="bottom",pady=10)
+
+            # AGREGAR: Selección de cliente
+        frame_cliente = ctk.CTkFrame(frame_intermedio)
+        frame_cliente.pack(side="left", fill="x", padx=10, pady=5)
+        
+        label_cliente = ctk.CTkLabel(frame_cliente, text="Cliente:")
+        label_cliente.pack(side="left", padx=5)
+        
+        self.combo_clientes = ctk.CTkComboBox(
+            frame_cliente, 
+            values=self.obtener_clientes_combo(),
+            width=200
+        )
+        self.combo_clientes.pack(side="left", padx=5)
+        
+        self.boton_actualizar_clientes = ctk.CTkButton(
+            frame_cliente, 
+            text="Actualizar", 
+            command=self.actualizar_lista_clientes,
+            width=80
+        )
+        self.boton_actualizar_clientes.pack(side="left", padx=5)
+
+    def obtener_clientes_combo(self):
+        db = next(get_session())
+        try:
+            from crud.cliente_crud import ClienteCRUD
+            clientes = ClienteCRUD.leer_clientes(db)
+            return [f"{c.nombre} ({c.rut})" for c in clientes] if clientes else ["Cliente General (11111111-1)"]
+        except Exception as e:
+            print(f"Error al cargar clientes: {e}")
+            return ["Cliente General (11111111-1)"]
+        finally:
+            db.close()
+
+    def actualizar_lista_clientes(self):
+        try:
+            nuevos_valores = self.obtener_clientes_combo()
+            self.combo_clientes.configure(values=nuevos_valores)
+            
+            # Seleccionar el primer cliente si hay disponibles
+            if nuevos_valores:
+                self.combo_clientes.set(nuevos_valores[0])
+                
+            CTkMessagebox(title="Éxito", message="Lista de clientes actualizada", icon="info")
+        except Exception as e:
+            CTkMessagebox(title="Error", message=f"Error al actualizar clientes: {str(e)}", icon="cancel")
+
+    def obtener_rut_cliente_seleccionado(self):
+        """Extrae el RUT del cliente seleccionado en el ComboBox"""
+        seleccion = self.combo_clientes.get()
+        if seleccion and "(" in seleccion and ")" in seleccion:
+            return seleccion.split("(")[1].split(")")[0]
+        return "11111111-1"  # Valor por defecto
 
     def crear_tarjeta(self, menu):
         num_tarjetas = len(self.menus_creados)
@@ -538,7 +754,7 @@ class AplicacionConPestanas(ctk.CTk):
             CTkMessagebox(title="Error", message="Por favor, selecciona un ingrediente para eliminar.", icon="warning")
             return
         
-        # Obtiene el nombre del ingrediente selecionado
+        # Obtiene el nombre del ingrediente seleccionado
         item = seleccion[0]
         valores = self.tree.item(item, 'values')
         nombre_ingrediente = valores[0]
@@ -553,9 +769,25 @@ class AplicacionConPestanas(ctk.CTk):
         )
         
         if respuesta.get() == "Eliminar":
-            self.stock.eliminar_ingrediente(nombre_ingrediente)
-            self.actualizar_treeview()
-            CTkMessagebox(title="Éxito", message=f"Ingrediente '{nombre_ingrediente}' eliminado correctamente.", icon="info")
+            try:
+                db = next(get_session())
+                from crud.ingrediente_crud import IngredienteCRUD
+                
+                # Eliminar de la base de datos
+                IngredienteCRUD.eliminar_ingrediente(db, nombre_ingrediente)
+                
+                # ACTUALIZAR: En lugar de modificar la lista manualmente, recargar desde BD
+                # Esto asegura que la lista en memoria esté sincronizada con la BD
+                self.actualizar_treeview()
+                
+                CTkMessagebox(title="Éxito", message=f"Ingrediente '{nombre_ingrediente}' eliminado correctamente.", icon="info")
+                
+            except ValueError as e:
+                CTkMessagebox(title="Error", message=str(e), icon="warning")
+            except Exception as e:
+                CTkMessagebox(title="Error", message=f"Error al eliminar ingrediente: {str(e)}", icon="cancel")
+            finally:
+                db.close()
 
     def actualizar_treeview(self):
         # Limpiar el treeview
@@ -565,7 +797,6 @@ class AplicacionConPestanas(ctk.CTk):
         # Insertar los ingredientes actualizados
         for ingrediente in self.stock.lista_ingredientes:
             self.tree.insert("", "end", values=(ingrediente.nombre, ingrediente.unidad, ingrediente.cantidad))
-
 
     def menu_disponible(self, menu):
         for ingrediente_necesario in menu.ingredientes:
@@ -595,6 +826,553 @@ class AplicacionConPestanas(ctk.CTk):
             if self.menu_disponible(menu):
                 self.crear_tarjeta(menu)
                 self.menus_creados.add(menu.nombre)
+
+    def configurar_pestana_grafico(self):
+        """Configurar pestaña de gráficos según pauta"""
+        frame = ctk.CTkFrame(self.tab6)
+        frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        label = ctk.CTkLabel(frame, text="Reportes Estadísticos", font=("Helvetica", 16, "bold"))
+        label.pack(pady=20)
+
+        # Frame para selección de tipo de gráfico
+        frame_seleccion = ctk.CTkFrame(frame)
+        frame_seleccion.pack(fill="x", padx=20, pady=10)
+
+        ctk.CTkLabel(frame_seleccion, text="Seleccionar Tipo de Gráfico:", font=("Helvetica", 12, "bold")).pack(pady=5)
+        
+        self.combo_tipo_grafico = ctk.CTkComboBox(
+            frame_seleccion,
+            values=[
+                "Ventas por Fecha (Diario)",
+                "Ventas por Fecha (Semanal)", 
+                "Ventas por Fecha (Mensual)",
+                "Ventas por Fecha (Anual)",
+                "Menús Más Populares",
+                "Uso de Ingredientes"
+            ],
+            width=300
+        )
+        self.combo_tipo_grafico.pack(pady=10)
+        self.combo_tipo_grafico.set("Ventas por Fecha (Diario)")
+
+        # Botón para generar gráfico
+        boton_generar = ctk.CTkButton(
+            frame, 
+            text="Generar Gráfico", 
+            command=self.generar_grafico_seleccionado,
+            fg_color="#1976D2"
+        )
+        boton_generar.pack(pady=10)
+
+
+        # Etiqueta informativa
+        info_label = ctk.CTkLabel(
+            frame, 
+            text="Haz clic en el botón para generar un gráfico con los ingredientes en stock",
+            text_color="gray"
+        )
+        info_label.pack(pady=5)
+
+    def generar_grafico_seleccionado(self):
+        """Generar el gráfico según la selección del usuario"""
+        try:
+            seleccion = self.combo_tipo_grafico.get()
+            
+            if seleccion == "Ventas por Fecha (Diario)":
+                ruta_grafico = GeneradorGraficos.generar_grafico_ventas_por_fecha('diario')
+            elif seleccion == "Ventas por Fecha (Semanal)":
+                ruta_grafico = GeneradorGraficos.generar_grafico_ventas_por_fecha('semanal')
+            elif seleccion == "Ventas por Fecha (Mensual)":
+                ruta_grafico = GeneradorGraficos.generar_grafico_ventas_por_fecha('mensual')
+            elif seleccion == "Ventas por Fecha (Anual)":
+                ruta_grafico = GeneradorGraficos.generar_grafico_ventas_por_fecha('anual')
+            elif seleccion == "Menús Más Populares":
+                ruta_grafico = GeneradorGraficos.generar_grafico_menus_populares()
+            elif seleccion == "Uso de Ingredientes":
+                ruta_grafico = GeneradorGraficos.generar_grafico_uso_ingredientes()
+            else:
+                CTkMessagebox(title="Error", message="Selecciona un tipo de gráfico válido", icon="warning")
+                return
+
+            # Verificar que el gráfico se generó correctamente
+            if not ruta_grafico or not os.path.exists(ruta_grafico):
+                CTkMessagebox(title="Error", message="No se pudo generar el gráfico", icon="warning")
+                return
+
+            # Mostrar el gráfico en una ventana emergente
+            self.mostrar_grafico_en_ventana(ruta_grafico, seleccion)
+            
+        except ValueError as e:
+            CTkMessagebox(title="Sin Datos", message=str(e), icon="warning")
+        except Exception as e:
+            CTkMessagebox(title="Error", message=f"Error al generar gráfico: {str(e)}", icon="cancel")
+
+    def generar_grafico_stock(self):
+        try:
+            # 1. Preparar datos del stock para el gráfico
+            datos_grafico = {}
+            for ingrediente in self.stock.lista_ingredientes:
+                datos_grafico[ingrediente.nombre] = ingrediente.cantidad
+            
+            # 2. Generar el gráfico usando tu función
+            ruta_grafico = generar_grafico_ingredientes(datos_grafico)
+            
+            # 3. Mostrar el gráfico en ventana emergente
+            ventana_grafico = CTkGraphViewer(self, ruta_grafico, title="Gráfico de Stock - Ingredientes")
+            ventana_grafico.focus()
+            
+        except ValueError as e:
+            CTkMessagebox(title="Error", message=str(e), icon="warning")
+        except Exception as e:
+            CTkMessagebox(title="Error", message=f"Error al generar el gráfico: {str(e)}", icon="cancel")
+    
+    def mostrar_grafico_en_ventana(self, ruta_grafico, titulo):
+        """Muestra el gráfico en una ventana emergente"""
+        try:
+            # Crear ventana emergente
+            ventana_grafico = ctk.CTkToplevel(self)
+            ventana_grafico.title(f"Gráfico - {titulo}")
+            ventana_grafico.geometry("800x600")
+            ventana_grafico.transient(self)
+            ventana_grafico.grab_set()
+            
+            # Frame principal
+            frame_principal = ctk.CTkFrame(ventana_grafico)
+            frame_principal.pack(fill="both", expand=True, padx=10, pady=10)
+            
+            # Título
+            label_titulo = ctk.CTkLabel(
+                frame_principal, 
+                text=titulo, 
+                font=("Helvetica", 16, "bold")
+            )
+            label_titulo.pack(pady=10)
+            
+            # Cargar y mostrar la imagen del gráfico
+            from PIL import Image, ImageTk
+            import tkinter as tk
+            
+            imagen = Image.open(ruta_grafico)
+            
+            # Redimensionar manteniendo aspecto (opcional)
+            ancho_max = 750
+            alto_max = 450
+            imagen.thumbnail((ancho_max, alto_max), Image.Resampling.LANCZOS)
+            
+            # Convertir a formato compatible con tkinter
+            imagen_tk = ImageTk.PhotoImage(imagen)
+            
+            # Mostrar imagen en un label
+            label_imagen = tk.Label(frame_principal, image=imagen_tk)
+            label_imagen.image = imagen_tk  # Mantener referencia
+            label_imagen.pack(pady=10)
+            
+            # Botón para cerrar
+            boton_cerrar = ctk.CTkButton(
+                frame_principal,
+                text="Cerrar",
+                command=ventana_grafico.destroy,
+                fg_color="#dc3545"
+            )
+            boton_cerrar.pack(pady=10)
+            
+        except Exception as e:
+            CTkMessagebox(title="Error", message=f"No se pudo mostrar el gráfico: {str(e)}", icon="cancel")
+
+    def agregar_nuevo_cliente(self):
+        """Ventana emergente para agregar nuevo cliente - CON VALIDACIÓN COMPLETA"""
+        ventana_cliente = ctk.CTkToplevel(self)
+        ventana_cliente.title("Agregar Nuevo Cliente")
+        ventana_cliente.geometry("400x650")
+        ventana_cliente.transient(self)
+        ventana_cliente.grab_set()
+
+        # Frame principal
+        frame_principal = ctk.CTkFrame(ventana_cliente)
+        frame_principal.pack(fill="both", expand=True, padx=20, pady=20)
+
+        # Campos del formulario
+        ctk.CTkLabel(frame_principal, text="RUT:*", font=("Helvetica", 12, "bold")).pack(pady=5)
+        entry_rut = ctk.CTkEntry(frame_principal, width=250, placeholder_text="Ej: 12345678-9")
+        entry_rut.pack(pady=5)
+
+        ctk.CTkLabel(frame_principal, text="Nombre:*", font=("Helvetica", 12, "bold")).pack(pady=5)
+        entry_nombre = ctk.CTkEntry(frame_principal, width=250, placeholder_text="Nombre completo")
+        entry_nombre.pack(pady=5)
+
+        ctk.CTkLabel(frame_principal, text="Correo:*", font=("Helvetica", 12, "bold")).pack(pady=5)
+        entry_correo = ctk.CTkEntry(frame_principal, width=250, placeholder_text="ejemplo@correo.com")
+        entry_correo.pack(pady=5)
+
+        ctk.CTkLabel(frame_principal, text="Teléfono:*", font=("Helvetica", 12, "bold")).pack(pady=5)
+        entry_telefono = ctk.CTkEntry(frame_principal, width=250, placeholder_text="+56 9 1234 5678")
+        entry_telefono.pack(pady=5)
+
+        # Etiqueta de campos obligatorios
+        ctk.CTkLabel(frame_principal, text="* Campos obligatorios", text_color="gray", font=("Helvetica", 10)).pack(pady=5)
+
+        def guardar_cliente():
+            rut = entry_rut.get().strip()
+            nombre = entry_nombre.get().strip()
+            correo = entry_correo.get().strip()
+            telefono = entry_telefono.get().strip()
+
+            # VALIDACIÓN COMPLETA DE TODOS LOS CAMPOS
+            errores = []
+            
+            if not rut:
+                errores.append("El RUT es obligatorio")
+            if not nombre:
+                errores.append("El nombre es obligatorio")
+            if not correo:
+                errores.append("El correo es obligatorio")
+            if not telefono:
+                errores.append("El teléfono es obligatorio")
+            
+            # Validar formato de correo básico
+            if correo and "@" not in correo:
+                errores.append("El correo debe tener un formato válido (debe contener @)")
+            
+            # Validar formato de RUT básico
+            if rut and "-" not in rut:
+                errores.append("El RUT debe tener formato: 12345678-9")
+
+            if errores:
+                mensaje_error = "Por favor corrige los siguientes errores:\n\n" + "\n".join(f"• {error}" for error in errores)
+                CTkMessagebox(title="Error de Validación", message=mensaje_error, icon="warning")
+                return
+
+            try:
+                db = next(get_session())
+                from crud.cliente_crud import ClienteCRUD
+                
+                # Crear cliente con TODOS los datos
+                ClienteCRUD.crear_cliente(db, nombre, rut, telefono, correo)
+                CTkMessagebox(title="Éxito", message="Cliente agregado correctamente con todos los datos", icon="info")
+                ventana_cliente.destroy()
+                self.actualizar_lista_clientes()
+                    
+            except ValueError as e:
+                CTkMessagebox(title="Error", message=str(e), icon="warning")
+            except Exception as e:
+                CTkMessagebox(title="Error", message=f"Error inesperado: {str(e)}", icon="cancel")
+            finally:
+                db.close()
+
+        # Botón para guardar
+        btn_guardar = ctk.CTkButton(
+            frame_principal, 
+            text="GUARDAR CLIENTE", 
+            command=guardar_cliente,
+            fg_color="#28a745",
+            text_color="white",
+            height=40,
+            font=("Helvetica", 14, "bold")
+        )
+        btn_guardar.pack(pady=20)
+
+    def ver_lista_clientes(self):
+        """Mostrar lista completa de clientes en una ventana"""
+        ventana_lista = ctk.CTkToplevel(self)
+        ventana_lista.title("Lista de Clientes")
+        ventana_lista.geometry("600x400")
+        ventana_lista.transient(self)
+
+        # Frame para la tabla
+        frame_tabla = ctk.CTkFrame(ventana_lista)
+        frame_tabla.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # Crear treeview
+        tree = ttk.Treeview(frame_tabla, columns=("RUT", "Nombre", "Email", "Teléfono"), show="headings")
+        tree.heading("RUT", text="RUT")
+        tree.heading("Nombre", text="Nombre")
+        tree.heading("Email", text="Email")
+        tree.heading("Teléfono", text="Teléfono")
+
+        tree.column("RUT", width=120)
+        tree.column("Nombre", width=150)
+        tree.column("Email", width=150)
+        tree.column("Teléfono", width=100)
+
+        # Scrollbar
+        scrollbar = ttk.Scrollbar(frame_tabla, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side="right", fill="y")
+        tree.pack(side="left", fill="both", expand=True)
+
+        # Cargar datos
+        try:
+            db = next(get_session())
+            from crud.cliente_crud import ClienteCRUD
+            clientes = ClienteCRUD.leer_clientes(db)
+            
+            for cliente in clientes:
+                tree.insert("", "end", values=(cliente.rut, cliente.nombre, cliente.correo or "", cliente.telefono or ""))
+                
+            if not clientes:
+                tree.insert("", "end", values=("No hay clientes registrados", "", "", ""))
+                
+        except Exception as e:
+            CTkMessagebox(title="Error", message=f"Error al cargar clientes: {str(e)}", icon="cancel")
+        finally:
+            db.close()
+
+        # Botón cerrar
+        ctk.CTkButton(ventana_lista, text="Cerrar", command=ventana_lista.destroy).pack(pady=10)
+
+    def configurar_pestana_clientes(self):
+        """Configurar la pestaña de gestión de clientes - CON LISTA DIRECTA"""
+        label = ctk.CTkLabel(self.tab7, text="Gestión de Clientes", font=("Helvetica", 16, "bold"))
+        label.pack(pady=20)
+
+        # Botón para agregar nuevo cliente
+        boton_agregar_cliente = ctk.CTkButton(
+            self.tab7,
+            text="Agregar Nuevo Cliente",
+            command=self.agregar_nuevo_cliente,
+            fg_color="#1976D2",
+            text_color="white"
+        )
+        boton_agregar_cliente.pack(pady=10)
+
+        # Frame para la tabla de clientes
+        frame_tabla = ctk.CTkFrame(self.tab7)
+        frame_tabla.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # Crear treeview para mostrar la lista de clientes
+        self.tree_clientes = ttk.Treeview(frame_tabla, columns=("RUT", "Nombre", "Email", "Teléfono"), show="headings", height=15)
+        
+        # Configurar encabezados
+        self.tree_clientes.heading("RUT", text="RUT")
+        self.tree_clientes.heading("Nombre", text="Nombre")
+        self.tree_clientes.heading("Email", text="Email")
+        self.tree_clientes.heading("Teléfono", text="Teléfono")
+
+        # Configurar anchos de columnas
+        self.tree_clientes.column("RUT", width=120, anchor="center")
+        self.tree_clientes.column("Nombre", width=150, anchor="w")
+        self.tree_clientes.column("Email", width=180, anchor="w")
+        self.tree_clientes.column("Teléfono", width=120, anchor="center")
+
+        # Scrollbar para la tabla
+        scrollbar = ttk.Scrollbar(frame_tabla, orient="vertical", command=self.tree_clientes.yview)
+        self.tree_clientes.configure(yscrollcommand=scrollbar.set)
+        
+        # Empaquetar elementos
+        self.tree_clientes.pack(side="left", fill="both", expand=True, padx=(0, 5))
+        scrollbar.pack(side="right", fill="y")
+
+        # Botón para actualizar la lista
+        boton_actualizar = ctk.CTkButton(
+            self.tab7,
+            text="Actualizar Lista",
+            command=self.actualizar_lista_clientes_directa,
+            fg_color="#28a745",
+            text_color="white"
+        )
+        boton_actualizar.pack(pady=10)
+
+        # Cargar la lista de clientes automáticamente al abrir la pestaña
+        self.actualizar_lista_clientes_directa()
+
+    def configurar_pestana_clientes(self):
+        """Configurar la pestaña de gestión de clientes - CON LISTA DIRECTA Y ELIMINAR"""
+        label = ctk.CTkLabel(self.tab7, text="Gestión de Clientes", font=("Helvetica", 16, "bold"))
+        label.pack(pady=20)
+
+        # Frame para los botones de acción
+        frame_botones = ctk.CTkFrame(self.tab7)
+        frame_botones.pack(fill="x", padx=10, pady=10)
+
+        # Botón para agregar nuevo cliente
+        boton_agregar_cliente = ctk.CTkButton(
+            frame_botones,
+            text="Agregar Nuevo Cliente",
+            command=self.agregar_nuevo_cliente,
+            fg_color="#1976D2",
+            text_color="white"
+        )
+        boton_agregar_cliente.pack(side="left", padx=5)
+
+        # Botón para eliminar cliente seleccionado
+        self.boton_eliminar_cliente = ctk.CTkButton(
+            frame_botones,
+            text="Eliminar Cliente Seleccionado",
+            command=self.eliminar_cliente_seleccionado,
+            fg_color="#dc3545",
+            text_color="white",
+        )
+        self.boton_eliminar_cliente.pack(side="left", padx=5)
+
+        # Botón para actualizar la lista
+        boton_actualizar = ctk.CTkButton(
+            frame_botones,
+            text="Actualizar Lista",
+            command=self.actualizar_lista_clientes_directa,
+            fg_color="#28a745",
+            text_color="white"
+        )
+        boton_actualizar.pack(side="left", padx=5)
+
+        # Frame para la tabla de clientes
+        frame_tabla = ctk.CTkFrame(self.tab7)
+        frame_tabla.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # Crear treeview para mostrar la lista de clientes
+        self.tree_clientes = ttk.Treeview(frame_tabla, columns=("RUT", "Nombre", "Email", "Teléfono"), show="headings", height=15)
+        
+        # Configurar encabezados
+        self.tree_clientes.heading("RUT", text="RUT")
+        self.tree_clientes.heading("Nombre", text="Nombre")
+        self.tree_clientes.heading("Email", text="Email")
+        self.tree_clientes.heading("Teléfono", text="Teléfono")
+
+        # Configurar anchos de columnas
+        self.tree_clientes.column("RUT", width=120, anchor="center")
+        self.tree_clientes.column("Nombre", width=150, anchor="w")
+        self.tree_clientes.column("Email", width=180, anchor="w")
+        self.tree_clientes.column("Teléfono", width=120, anchor="center")
+
+        # Scrollbar para la tabla
+        scrollbar = ttk.Scrollbar(frame_tabla, orient="vertical", command=self.tree_clientes.yview)
+        self.tree_clientes.configure(yscrollcommand=scrollbar.set)
+        
+        # Empaquetar elementos
+        self.tree_clientes.pack(side="left", fill="both", expand=True, padx=(0, 5))
+        scrollbar.pack(side="right", fill="y")
+
+        # Vincular evento de selección para habilitar/deshabilitar botón eliminar
+        self.tree_clientes.bind('<<TreeviewSelect>>', self.on_cliente_seleccionado)
+
+        # Cargar la lista de clientes automáticamente al abrir la pestaña
+        self.actualizar_lista_clientes_directa()
+
+    def on_cliente_seleccionado(self, event):
+        """Habilitar botón eliminar cuando se selecciona un cliente"""
+        seleccion = self.tree_clientes.selection()
+        if seleccion:
+            self.boton_eliminar_cliente.configure(state="normal")
+        else:
+            self.boton_eliminar_cliente.configure(state="disabled")
+
+    def eliminar_cliente_seleccionado(self):
+        """Eliminar el cliente seleccionado de la lista"""
+        seleccion = self.tree_clientes.selection()
+        
+        if not seleccion:
+            CTkMessagebox(title="Error", message="Por favor selecciona un cliente para eliminar.", icon="warning")
+            return
+
+        item = seleccion[0]
+        valores = self.tree_clientes.item(item, 'values')
+        rut_cliente = valores[0]
+        nombre_cliente = valores[1]
+
+        # Confirmar eliminación
+        respuesta = CTkMessagebox(
+            title="Confirmar Eliminación",
+            message=f"¿Estás seguro de que quieres eliminar al cliente:\n\n{nombre_cliente}\nRUT: {rut_cliente}?",
+            icon="question",
+            option_1="Cancelar",
+            option_2="Eliminar"
+        )
+
+        if respuesta.get() != "Eliminar":
+            return
+
+        try:
+            db = next(get_session())
+            from crud.cliente_crud import ClienteCRUD
+            
+            # Eliminar cliente de la base de datos
+            ClienteCRUD.borrar_cliente(db, rut_cliente)
+            
+            CTkMessagebox(
+                title="Éxito", 
+                message=f"Cliente '{nombre_cliente}' eliminado correctamente.", 
+                icon="info"
+            )
+            
+            # Actualizar la lista
+            self.actualizar_lista_clientes_directa()
+            
+            # Actualizar también el combobox en la pestaña de Pedido
+            self.actualizar_lista_clientes()
+                
+        except ValueError as e:
+            CTkMessagebox(title="Error", message=str(e), icon="warning")
+        except Exception as e:
+            CTkMessagebox(title="Error", message=f"Error al eliminar cliente: {str(e)}", icon="cancel")
+        finally:
+            db.close()
+
+    def actualizar_lista_clientes_directa(self):
+        """Actualizar la lista de clientes en la tabla directamente"""
+        try:
+            # Limpiar tabla existente
+            for item in self.tree_clientes.get_children():
+                self.tree_clientes.delete(item)
+
+            # Deshabilitar botón eliminar (ninguna selección)
+            self.boton_eliminar_cliente.configure(state="disabled")
+
+            # Obtener clientes de la base de datos
+            db = next(get_session())
+            from crud.cliente_crud import ClienteCRUD
+            clientes = ClienteCRUD.leer_clientes(db)
+            
+            # Insertar clientes en la tabla
+            if clientes:
+                for cliente in clientes:
+                    self.tree_clientes.insert("", "end", values=(
+                        cliente.rut, 
+                        cliente.nombre, 
+                        cliente.correo or "No especificado", 
+                        cliente.telefono or "No especificado"
+                    ))
+            else:
+                # Mostrar mensaje si no hay clientes
+                self.tree_clientes.insert("", "end", values=(
+                    "No hay clientes", 
+                    "Registra el primer cliente", 
+                    "Usa el botón 'Agregar Nuevo Cliente'", 
+                    ""
+                ))
+                
+        except Exception as e:
+            CTkMessagebox(
+                title="Error", 
+                message=f"Error al cargar clientes: {str(e)}", 
+                icon="cancel"
+            )
+        finally:
+            db.close()
+
+    def verificar_modelo_cliente(self):
+        """Función para verificar la estructura del modelo ClienteBD"""
+        try:
+            db = next(get_session())
+            from models import ClienteBD
+            
+            # Verificar las columnas del modelo
+            print("Columnas de ClienteBD:")
+            for col in ClienteBD.__table__.columns:
+                print(f"  - {col.name} ({col.type})")
+                
+            # Verificar la estructura de la tabla en la BD
+            result = db.execute("PRAGMA table_info(clientes)")
+            print("\nColumnas en la tabla 'clientes' de la BD:")
+            for col in result:
+                print(f"  - {col[1]} ({col[2]})")
+                
+        except Exception as e:
+            print(f"Error al verificar modelo: {e}")
+        finally:
+            db.close()
+
+    # Llama a esta función al inicio de tu aplicación para diagnosticar
+    # self.verificar_modelo_cliente()
 
 
 if __name__ == "__main__":

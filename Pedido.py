@@ -1,3 +1,4 @@
+from sqlalchemy.orm import Session
 from models import ClienteBD, PedidoBD
 from functools import reduce
 from typing import Dict, List, Optional
@@ -10,7 +11,7 @@ from datetime import datetime
 class Pedido:
     def __init__(self):
         self.menus: List[CrearMenu] = []
-        self.gestor_stock = Stock() 
+        self.gestor_stock = Stock()  
 
     def agregar_menu(self, menu: CrearMenu):
         """Agrega un menú al pedido o incrementa la cantidad si ya existe."""
@@ -47,6 +48,7 @@ class Pedido:
                 for ing in menu.ingredientes
             }
        
+        # USO DE MAP: Crea una lista de diccionarios de requerimientos por menú
         lista_requerimientos: List[Dict[str, float]] = list(map(
             obtener_requerimientos_menu,
             self.menus
@@ -57,8 +59,7 @@ class Pedido:
             for ingrediente, cantidad in actual.items():
                 acumulado[ingrediente] = acumulado.get(ingrediente, 0) + cantidad
             return acumulado
-        
-        # USO DE REDUCE (requisito de pauta)
+      
         return reduce(combinar_requerimientos, lista_requerimientos, {})
 
     def _descontar_ingredientes_pedido(self) -> bool:
@@ -85,9 +86,9 @@ class Pedido:
             print("Error: Debe agregar productos al pedido antes de generar la boleta.")
             return None
         
-        # Validación de Cliente (temporal - por defecto)
+        # Validación de Cliente
         if not cliente_rut:
-            cliente_rut = "11111111-1"  
+            cliente_rut = "11111111-1"  # RUT por defecto
         
         db = next(get_session())
         try:
@@ -112,7 +113,8 @@ class Pedido:
             
             # Calcular total
             total = self.calcular_total()
-        
+            
+            # USO DE FILTER: filtrando menús con cantidad > 0
             detalles_pedido = list(filter(
                 lambda m: m.cantidad > 0,
                 self.menus
@@ -130,7 +132,7 @@ class Pedido:
             
             db.commit()
             
-            print(f"Pedido N°{pedido_final.id} para '{cliente.nombre}' guardado. Total: ${total:.2f}")
+            print(f"✅ Pedido N°{pedido_final.id} para '{cliente.nombre}' guardado. Total: ${total:.2f}")
             return pedido_final
             
         except Exception as e:
