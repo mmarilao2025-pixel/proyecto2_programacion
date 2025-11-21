@@ -101,7 +101,6 @@ class Stock:
 
     @property
     def lista_ingredientes(self):
-        """Propiedad que obtiene ingredientes desde BD (para compatibilidad con código existente)"""
         return self.obtener_todos_los_ingredientes()
 
     def descontar_stock(self, requerimientos: Dict[str, float]) -> bool:

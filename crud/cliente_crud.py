@@ -1,21 +1,31 @@
 from sqlalchemy.orm import Session
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from models import ClienteBD
 
 class ClienteCRUD:
     @staticmethod
-    def crear_cliente(db: Session, nombre: str, rut: str, telefono: str):
-        """Crea un nuevo cliente validando RUT único"""
+    def crear_cliente(db: Session, nombre: str, rut: str, telefono: str, correo: str = None):
+        """Crea un nuevo cliente validando RUT único y correo único"""
+        # Verificar si el RUT ya existe
         cliente_existente = db.query(ClienteBD).filter_by(rut=rut).first()
         if cliente_existente:
             raise ValueError(f"El cliente con RUT '{rut}' ya existe.")
         
-        cliente = ClienteBD(nombre=nombre, rut=rut, telefono=telefono)
+        # Verificar si el correo ya existe (si se proporciona)
+        if correo:
+            correo_existente = db.query(ClienteBD).filter_by(correo=correo).first()
+            if correo_existente:
+                raise ValueError(f"El correo '{correo}' ya está registrado.")
+        
+        cliente = ClienteBD(nombre=nombre, rut=rut, telefono=telefono, correo=correo)
         db.add(cliente)
         try:
             db.commit()
             db.refresh(cliente)
             return cliente
+        except IntegrityError:
+            db.rollback()
+            raise ValueError("Error de integridad: RUT o correo ya existen.")
         except SQLAlchemyError as e:
             db.rollback()
             raise Exception(f"Error al crear el cliente: {e}")
