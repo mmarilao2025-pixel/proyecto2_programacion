@@ -895,9 +895,13 @@ class AplicacionConPestanas(ctk.CTk):
                 CTkMessagebox(title="Error", message="Selecciona un tipo de gráfico válido", icon="warning")
                 return
 
-            # Mostrar el gráfico
-            ventana_grafico = CTkGraphViewer(self, ruta_grafico, title=f"Gráfico - {seleccion}")
-            ventana_grafico.focus()
+            # Verificar que el gráfico se generó correctamente
+            if not ruta_grafico or not os.path.exists(ruta_grafico):
+                CTkMessagebox(title="Error", message="No se pudo generar el gráfico", icon="warning")
+                return
+
+            # Mostrar el gráfico en una ventana emergente
+            self.mostrar_grafico_en_ventana(ruta_grafico, seleccion)
             
         except ValueError as e:
             CTkMessagebox(title="Sin Datos", message=str(e), icon="warning")
@@ -923,6 +927,59 @@ class AplicacionConPestanas(ctk.CTk):
         except Exception as e:
             CTkMessagebox(title="Error", message=f"Error al generar el gráfico: {str(e)}", icon="cancel")
     
+    def mostrar_grafico_en_ventana(self, ruta_grafico, titulo):
+        """Muestra el gráfico en una ventana emergente"""
+        try:
+            # Crear ventana emergente
+            ventana_grafico = ctk.CTkToplevel(self)
+            ventana_grafico.title(f"Gráfico - {titulo}")
+            ventana_grafico.geometry("800x600")
+            ventana_grafico.transient(self)
+            ventana_grafico.grab_set()
+            
+            # Frame principal
+            frame_principal = ctk.CTkFrame(ventana_grafico)
+            frame_principal.pack(fill="both", expand=True, padx=10, pady=10)
+            
+            # Título
+            label_titulo = ctk.CTkLabel(
+                frame_principal, 
+                text=titulo, 
+                font=("Helvetica", 16, "bold")
+            )
+            label_titulo.pack(pady=10)
+            
+            # Cargar y mostrar la imagen del gráfico
+            from PIL import Image, ImageTk
+            import tkinter as tk
+            
+            imagen = Image.open(ruta_grafico)
+            
+            # Redimensionar manteniendo aspecto (opcional)
+            ancho_max = 750
+            alto_max = 450
+            imagen.thumbnail((ancho_max, alto_max), Image.Resampling.LANCZOS)
+            
+            # Convertir a formato compatible con tkinter
+            imagen_tk = ImageTk.PhotoImage(imagen)
+            
+            # Mostrar imagen en un label
+            label_imagen = tk.Label(frame_principal, image=imagen_tk)
+            label_imagen.image = imagen_tk  # Mantener referencia
+            label_imagen.pack(pady=10)
+            
+            # Botón para cerrar
+            boton_cerrar = ctk.CTkButton(
+                frame_principal,
+                text="Cerrar",
+                command=ventana_grafico.destroy,
+                fg_color="#dc3545"
+            )
+            boton_cerrar.pack(pady=10)
+            
+        except Exception as e:
+            CTkMessagebox(title="Error", message=f"No se pudo mostrar el gráfico: {str(e)}", icon="cancel")
+
     def agregar_nuevo_cliente(self):
         """Ventana emergente para agregar nuevo cliente - CON VALIDACIÓN COMPLETA"""
         ventana_cliente = ctk.CTkToplevel(self)
