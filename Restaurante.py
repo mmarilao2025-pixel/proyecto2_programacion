@@ -240,7 +240,7 @@ class AplicacionConPestanas(ctk.CTk):
             CTkMessagebox(title="Error", message=f"No se pudo mostrar la boleta.\n{e}", icon="warning")
 
     def configurar_pestana1(self):
-        # Dividir la Pestaña 1 en dos frames
+        # Dividir la Pestaña 1 en two frames
         frame_formulario = ctk.CTkFrame(self.tab1)
         frame_formulario.pack(side="left", fill="both", expand=True, padx=10, pady=10)
 
@@ -324,55 +324,100 @@ class AplicacionConPestanas(ctk.CTk):
         self.actualizar_treeview()
         CTkMessagebox(title="Éxito", message=f"Ingrediente '{nombre}' agregado correctamente.", icon="info")
 
-
     def tarjeta_click(self, event, menu):
-        # Verificar stock suficiente para 1 menú
+        # Calcular cuántos de este menú ya están en el pedido
+        cantidad_en_pedido = 0
+        for item in self.pedido.menus:
+            if item.nombre == menu.nombre:
+                cantidad_en_pedido = item.cantidad
+                break
+        
+        # Verificar stock suficiente para (cantidad_en_pedido + 1) menús
         suficiente_stock = True
+        ingredientes_insuficientes = []
+        
         for ingrediente_necesario in menu.ingredientes:
             nombre_necesario = ingrediente_necesario.nombre.strip().lower()
             unidad_necesaria = ingrediente_necesario.unidad.strip().lower()
-            cantidad_necesaria = int(ingrediente_necesario.cantidad)
+            cantidad_necesaria_por_menu = int(ingrediente_necesario.cantidad)
+            cantidad_total_necesaria = cantidad_necesaria_por_menu * (cantidad_en_pedido + 1)
 
             encontrado = False
             for ingrediente_stock in self.stock.lista_ingredientes:
                 nombre_stock = ingrediente_stock.nombre.strip().lower()
                 unidad_stock = ingrediente_stock.unidad.strip().lower()
+                
                 if nombre_necesario == nombre_stock and unidad_necesaria == unidad_stock:
                     encontrado = True
-                    if int(ingrediente_stock.cantidad) < cantidad_necesaria:
+                    if int(ingrediente_stock.cantidad) < cantidad_total_necesaria:
                         suficiente_stock = False
+                        ingredientes_insuficientes.append({
+                            'nombre': nombre_necesario,
+                            'necesario': cantidad_total_necesaria,
+                            'disponible': int(ingrediente_stock.cantidad)
+                        })
                     break
+            
             if not encontrado:
                 suficiente_stock = False
+                ingredientes_insuficientes.append({
+                    'nombre': nombre_necesario,
+                    'necesario': cantidad_total_necesaria,
+                    'disponible': 0
+                })
+            
             if not suficiente_stock:
                 break
 
         if suficiente_stock:
-            # Descontar los ingredientes correspondientes a 1 menú
+            # NUEVO: Descontar los ingredientes usando el método del Stock que actualiza la BD
+            requerimientos = {}
             for ingrediente_necesario in menu.ingredientes:
-                for ingrediente_stock in self.stock.lista_ingredientes:
-                    if ingrediente_stock.nombre.strip().lower() == ingrediente_necesario.nombre.strip().lower() \
-                    and ingrediente_stock.unidad.strip().lower() == ingrediente_necesario.unidad.strip().lower():
-                        ingrediente_stock.cantidad -= int(ingrediente_necesario.cantidad)
-                        break
+                nombre_ing = ingrediente_necesario.nombre.strip()
+                cantidad_necesaria = int(ingrediente_necesario.cantidad)
+                requerimientos[nombre_ing] = cantidad_necesaria
+            
+            # Usar el método descontar_stock que actualiza la base de datos
+            if self.stock.descontar_stock(requerimientos):
+                # Agregar 1 menú al pedido
+                menu_a_agregar = CrearMenu(menu.nombre, menu.ingredientes, menu.precio, getattr(menu, "icono_path", None))
+                self.pedido.agregar_menu(menu_a_agregar)
 
-            # Agregar 1 menú al pedido
-            menu_a_agregar = CrearMenu(menu.nombre, menu.ingredientes, menu.precio, getattr(menu, "icono_path", None))
-            self.pedido.agregar_menu(menu_a_agregar)
+                # Actualizar Treeview y total
+                self.actualizar_treeview_pedido()
+                total = self.pedido.calcular_total()
+                self.label_total.configure(text=f"Total: ${total:.2f}")
+                
+                # Actualizar disponibilidad de tarjetas
+                self.cargar_tarjetas_disponibles()
 
-            # Actualizar Treeview y total
-            self.actualizar_treeview_pedido()
-            total = self.pedido.calcular_total()
-            self.label_total.configure(text=f"Total: ${total:.2f}")
+                # 🔥 Actualizar la pestaña de Stock inmediatamente
+                self.actualizar_treeview()
+                
+                CTkMessagebox(
+                    title="Éxito",
+                    message=f"'{menu.nombre}' agregado al pedido. Stock actualizado.",
+                    icon="info"
+                )
+            else:
+                CTkMessagebox(
+                    title="Error",
+                    message="No se pudo actualizar el stock en la base de datos.",
+                    icon="cancel"
+                )
+                
         else:
+            # Mostrar mensaje detallado de qué ingredientes faltan
+            mensaje = f"No hay suficientes ingredientes para preparar '{menu.nombre}'.\n\n"
+            for ing in ingredientes_insuficientes:
+                mensaje += f"- {ing['nombre']}: Necesario {ing['necesario']}, Disponible {ing['disponible']}\n"
+            
             CTkMessagebox(
                 title="Stock Insuficiente",
-                message=f"No hay suficientes ingredientes para preparar el menú '{menu.nombre}'.",
+                message=mensaje,
                 icon="warning"
             )
 
-
-    
     def cargar_icono_menu(self, ruta_icono):
         imagen = Image.open(ruta_icono)
         icono_menu = ctk.CTkImage(imagen, size=(64, 64))
@@ -391,11 +436,12 @@ class AplicacionConPestanas(ctk.CTk):
         item = seleccion[0]
         valores = self.treeview_menu.item(item, 'values')
         nombre_menu = valores[0]
+        cantidad_eliminar = int(valores[1])
 
         # Confirmar eliminación
         respuesta = CTkMessagebox(
             title="Confirmar Eliminación",
-            message=f"¿Estás seguro de que quieres eliminar '{nombre_menu}' del pedido?",
+            message=f"¿Estás seguro de que quieres eliminar {cantidad_eliminar} '{nombre_menu}' del pedido?",
             icon="question",
             option_1="Cancelar",
             option_2="Eliminar"
@@ -404,25 +450,36 @@ class AplicacionConPestanas(ctk.CTk):
         if respuesta.get() != "Eliminar":
             return
 
-        # Buscar y eliminar la primera coincidencia del menú en el pedido
+        # Buscar el menú en el pedido
+        menu_encontrado = None
         for i, menu in enumerate(self.pedido.menus):
             if menu.nombre == nombre_menu:
-                # Restaurar los ingredientes al stock
-                for ingrediente_necesario in menu.ingredientes:
-                    for ingrediente_stock in self.stock.lista_ingredientes:
-                        if ingrediente_stock.nombre.strip().lower() == ingrediente_necesario.nombre.strip().lower():
-                            ingrediente_stock.cantidad += int(ingrediente_necesario.cantidad)
-                            break
-                # Eliminar menú del pedido
-                self.pedido.menus.pop(i)
+                menu_encontrado = menu
                 break
 
-        # Actualizar Treeview y total
+        if menu_encontrado:
+            # SOLUCIÓN: Usar el método descontar_stock pero con cantidades NEGATIVAS para restaurar
+            requerimientos_restaurar = {}
+            for ingrediente_necesario in menu_encontrado.ingredientes:
+                nombre_ing = ingrediente_necesario.nombre.strip()
+                # Cantidad NEGATIVA para restaurar (esto suma en lugar de restar)
+                cantidad_restaurar = -int(ingrediente_necesario.cantidad) * cantidad_eliminar
+                requerimientos_restaurar[nombre_ing] = cantidad_restaurar
+            
+            # Usar el mismo método que ya funciona bien para actualizar la BD
+            self.stock.descontar_stock(requerimientos_restaurar)
+            
+            # Eliminar el menú del pedido
+            self.pedido.menus = [m for m in self.pedido.menus if m.nombre != nombre_menu]
+
+        # Actualizar vistas
         self.actualizar_treeview_pedido()
         total = self.pedido.calcular_total()
         self.label_total.configure(text=f"Total: ${total:.2f}")
-        CTkMessagebox(title="Éxito", message=f"Menú '{nombre_menu}' eliminado del pedido.", icon="info")
-
+        self.cargar_tarjetas_disponibles()
+        self.actualizar_treeview()
+        
+        CTkMessagebox(title="Éxito", message=f"{cantidad_eliminar} '{nombre_menu}' eliminados del pedido.", icon="info")
 
     def generar_boleta(self):
         if not self.pedido.menus:
@@ -443,7 +500,6 @@ class AplicacionConPestanas(ctk.CTk):
 
         except Exception as e:
             CTkMessagebox(title="Error al Generar Boleta", message=f"Ocurrió un error al generar la boleta.\n{e}", icon="cancel")
-
 
     def configurar_pestana2(self):
         frame_superior = ctk.CTkFrame(self.tab2)
@@ -570,7 +626,6 @@ class AplicacionConPestanas(ctk.CTk):
         # Insertar los ingredientes actualizados
         for ingrediente in self.stock.lista_ingredientes:
             self.tree.insert("", "end", values=(ingrediente.nombre, ingrediente.unidad, ingrediente.cantidad))
-
 
     def menu_disponible(self, menu):
         for ingrediente_necesario in menu.ingredientes:

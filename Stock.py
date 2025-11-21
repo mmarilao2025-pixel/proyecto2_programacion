@@ -105,29 +105,29 @@ class Stock:
         return self.obtener_todos_los_ingredientes()
 
     def descontar_stock(self, requerimientos: Dict[str, float]) -> bool:
-        """Verifica y descuenta el stock según los requerimientos del menú"""
         db = self._get_db_session()
         try:
-            # Verificar stock suficiente - CORREGIDO
+            # Para valores negativos, estamos RESTAURANDO stock, así que no verificar
             for nombre_ing, cantidad_necesaria in requerimientos.items():
-                ingrediente = IngredienteCRUD.leer_ingrediente_por_nombre(db, nombre_ing)
-                if not ingrediente or ingrediente.cantidad < cantidad_necesaria:
-                    print(f"Stock insuficiente para '{nombre_ing}'. Requerido: {cantidad_necesaria}, Disponible: {ingrediente.cantidad if ingrediente else 0}")
-                    return False
+                if cantidad_necesaria > 0:  # Solo verificar stock si estamos descontando
+                    ingrediente = IngredienteCRUD.leer_ingrediente_por_nombre(db, nombre_ing)
+                    if not ingrediente or ingrediente.cantidad < cantidad_necesaria:
+                        print(f"Stock insuficiente para '{nombre_ing}'. Requerido: {cantidad_necesaria}, Disponible: {ingrediente.cantidad if ingrediente else 0}")
+                        return False
             
-            # Descontar stock - CORREGIDO
+            # Descontar stock (o restaurar si es negativo)
             for nombre_ing, cantidad_necesaria in requerimientos.items():
                 ingrediente = IngredienteCRUD.leer_ingrediente_por_nombre(db, nombre_ing)
-                nueva_cantidad = ingrediente.cantidad - cantidad_necesaria
+                nueva_cantidad = ingrediente.cantidad - cantidad_necesaria  # Si cantidad_necesaria es negativo, esto SUMA
                 IngredienteCRUD.actualizar_ingrediente(db, nombre_ing, nueva_cantidad)
             
             db.commit()
-            print("Descuento de stock completado exitosamente.")
+            print("Operación de stock completada exitosamente.")
             return True
             
         except Exception as e:
             db.rollback()
-            print(f"Error crítico al descontar stock: {e}")
+            print(f"Error crítico al actualizar stock: {e}")
             return False
         finally:
             db.close()
