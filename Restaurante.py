@@ -17,7 +17,7 @@ import os
 from tkinter.font import nametofont
 from grafico_ingredientes import generar_grafico_ingredientes, CTkGraphViewer
 from conexion import get_session
-
+from grafico_ingredientes import GeneradorGraficos
 
 class AplicacionConPestanas(ctk.CTk):
     def __init__(self):
@@ -36,12 +36,30 @@ class AplicacionConPestanas(ctk.CTk):
         self.crear_pestanas()
 
     def actualizar_treeview(self):
-
+        # Limpiar el treeview
         for item in self.tree.get_children():
             self.tree.delete(item)
 
-        for ingrediente in self.stock.lista_ingredientes:
-            self.tree.insert("", "end", values=(ingrediente.nombre,ingrediente.unidad, ingrediente.cantidad))    
+        # Cargar ingredientes desde la base de datos
+        try:
+            db = next(get_session())
+            from crud.ingrediente_crud import IngredienteCRUD
+            ingredientes_bd = IngredienteCRUD.leer_ingredientes(db)
+            
+            # Actualizar la lista en memoria
+            self.stock.lista_ingredientes = [
+                Ingrediente(nombre=ing.nombre, unidad=ing.unidad, cantidad=ing.cantidad)
+                for ing in ingredientes_bd
+            ]
+            
+            # Insertar los ingredientes actualizados
+            for ingrediente in self.stock.lista_ingredientes:
+                self.tree.insert("", "end", values=(ingrediente.nombre, ingrediente.unidad, ingrediente.cantidad))
+                
+        except Exception as e:
+            CTkMessagebox(title="Error", message=f"Error al cargar ingredientes: {str(e)}", icon="cancel")
+        finally:
+            db.close()
 
     def on_tab_change(self):
         selected_tab = self.tabview.get()
@@ -109,20 +127,47 @@ class AplicacionConPestanas(ctk.CTk):
             return
         
         try:
-            # Usar el método agregar_ingrediente que ya funciona en Stock
+            db = next(get_session())
+            from crud.ingrediente_crud import IngredienteCRUD
+            
+            ingredientes_actualizados = 0
+            ingredientes_nuevos = 0
+            
             for _, row in self.df_csv.iterrows():
                 nombre = str(row['nombre']).strip()
                 unidad = str(row['unidad']).strip()
                 cantidad = int(row['cantidad'])
                 
-                ingrediente = Ingrediente(nombre=nombre, unidad=unidad, cantidad=cantidad)
-                self.stock.agregar_ingrediente(ingrediente)
+                # Verificar si ya existe en la base de datos
+                ingrediente_existente = IngredienteCRUD.leer_ingrediente_por_nombre(db, nombre)
+                
+                if ingrediente_existente:
+                    # Sumar a la cantidad existente
+                    nueva_cantidad = ingrediente_existente.cantidad + cantidad
+                    IngredienteCRUD.actualizar_ingrediente(db, nombre, nueva_cantidad=nueva_cantidad)
+                    
+                    # Actualizar en la lista en memoria
+                    for ing in self.stock.lista_ingredientes:
+                        if ing.nombre.lower() == nombre.lower():
+                            ing.cantidad = nueva_cantidad
+                            break
+                    
+                    ingredientes_actualizados += 1
+                else:
+                    # Crear nuevo ingrediente
+                    ingrediente = Ingrediente(nombre=nombre, unidad=unidad, cantidad=cantidad)
+                    IngredienteCRUD.crear_ingrediente(db, nombre, unidad, cantidad)
+                    self.stock.agregar_ingrediente(ingrediente)
+                    ingredientes_nuevos += 1
             
-            CTkMessagebox(title="Stock Actualizado", message="Ingredientes agregados al stock correctamente.", icon="info")
+            mensaje = f"Stock actualizado:\n- {ingredientes_actualizados} ingredientes actualizados\n- {ingredientes_nuevos} ingredientes nuevos"
+            CTkMessagebox(title="Stock Actualizado", message=mensaje, icon="info")
             self.actualizar_treeview()
             
         except Exception as e:
             CTkMessagebox(title="Error", message=f"Error al agregar ingredientes al stock: {str(e)}", icon="cancel")
+        finally:
+            db.close()
 
     def cargar_csv(self):
         archivo = filedialog.askopenfile(filetypes=[("Archivos CSV", "*.csv")])
@@ -291,6 +336,7 @@ class AplicacionConPestanas(ctk.CTk):
         # Agrega un nuevo ingrediente al stock desde el formulario
         nombre = self.entry_nombre.get().strip()
         cantidad_str = self.entry_cantidad.get().strip()
+        
         # Validaciones del formulario
         if not nombre:
             CTkMessagebox(title="Error", message="El nombre del ingrediente no puede estar vacío.", icon="warning")
@@ -315,20 +361,52 @@ class AplicacionConPestanas(ctk.CTk):
             CTkMessagebox(title="Error", message="La cantidad debe ser un número entero válido.", icon="warning")
             return
         
-        # Crea y agrega el ingrediente ingresado 
-        nuevo_ingrediente = Ingrediente(
-            nombre=nombre,
-            unidad="unid",  # Siempre "unid"
-            cantidad=cantidad
-        )
-        self.stock.agregar_ingrediente(nuevo_ingrediente)
-        
-        # Limpia los campos del formulario
-        self.entry_nombre.delete(0, 'end')
-        self.entry_cantidad.delete(0, 'end')
-        # Actualiza el treeview
-        self.actualizar_treeview()
-        CTkMessagebox(title="Éxito", message=f"Ingrediente '{nombre}' agregado correctamente.", icon="info")
+        # AGREGAR ESTA PARTE PARA GUARDAR EN LA BASE DE DATOS
+        try:
+            db = next(get_session())
+            from crud.ingrediente_crud import IngredienteCRUD
+            
+            # Verificar si el ingrediente ya existe en la base de datos
+            ingrediente_existente = IngredienteCRUD.leer_ingrediente_por_nombre(db, nombre)
+            
+            if ingrediente_existente:
+                # SUMAR a la cantidad existente
+                nueva_cantidad = ingrediente_existente.cantidad + cantidad
+                IngredienteCRUD.actualizar_ingrediente(db, nombre, nueva_cantidad=nueva_cantidad)
+                
+                # Actualizar en la lista en memoria
+                for ing in self.stock.lista_ingredientes:
+                    if ing.nombre.lower() == nombre.lower():
+                        ing.cantidad = nueva_cantidad
+                        break
+                
+                mensaje = f"Se sumaron {cantidad} unidades a '{nombre}'. Total: {nueva_cantidad}"
+            else:
+                # Crear nuevo ingrediente
+                nuevo_ingrediente = Ingrediente(
+                    nombre=nombre,
+                    unidad="unid",
+                    cantidad=cantidad
+                )
+                IngredienteCRUD.crear_ingrediente(db, nombre, "unid", cantidad)
+                self.stock.agregar_ingrediente(nuevo_ingrediente)
+                mensaje = f"Ingrediente '{nombre}' agregado correctamente con {cantidad} unidades."
+            
+            # Limpia los campos del formulario
+            self.entry_nombre.delete(0, 'end')
+            self.entry_cantidad.delete(0, 'end')
+            
+            # Actualiza el treeview
+            self.actualizar_treeview()
+            
+            CTkMessagebox(title="Éxito", message=mensaje, icon="info")
+            
+        except ValueError as e:
+            CTkMessagebox(title="Error", message=str(e), icon="warning")
+        except Exception as e:
+            CTkMessagebox(title="Error", message=f"Error al guardar en la base de datos: {str(e)}", icon="cancel")
+        finally:
+            db.close()
 
     def tarjeta_click(self, event, menu):
         # Calcular cuántos de este menú ya están en el pedido
@@ -676,7 +754,7 @@ class AplicacionConPestanas(ctk.CTk):
             CTkMessagebox(title="Error", message="Por favor, selecciona un ingrediente para eliminar.", icon="warning")
             return
         
-        # Obtiene el nombre del ingrediente selecionado
+        # Obtiene el nombre del ingrediente seleccionado
         item = seleccion[0]
         valores = self.tree.item(item, 'values')
         nombre_ingrediente = valores[0]
@@ -691,9 +769,25 @@ class AplicacionConPestanas(ctk.CTk):
         )
         
         if respuesta.get() == "Eliminar":
-            self.stock.eliminar_ingrediente(nombre_ingrediente)
-            self.actualizar_treeview()
-            CTkMessagebox(title="Éxito", message=f"Ingrediente '{nombre_ingrediente}' eliminado correctamente.", icon="info")
+            try:
+                db = next(get_session())
+                from crud.ingrediente_crud import IngredienteCRUD
+                
+                # Eliminar de la base de datos
+                IngredienteCRUD.eliminar_ingrediente(db, nombre_ingrediente)
+                
+                # ACTUALIZAR: En lugar de modificar la lista manualmente, recargar desde BD
+                # Esto asegura que la lista en memoria esté sincronizada con la BD
+                self.actualizar_treeview()
+                
+                CTkMessagebox(title="Éxito", message=f"Ingrediente '{nombre_ingrediente}' eliminado correctamente.", icon="info")
+                
+            except ValueError as e:
+                CTkMessagebox(title="Error", message=str(e), icon="warning")
+            except Exception as e:
+                CTkMessagebox(title="Error", message=f"Error al eliminar ingrediente: {str(e)}", icon="cancel")
+            finally:
+                db.close()
 
     def actualizar_treeview(self):
         # Limpiar el treeview
@@ -734,19 +828,43 @@ class AplicacionConPestanas(ctk.CTk):
                 self.menus_creados.add(menu.nombre)
 
     def configurar_pestana_grafico(self):
+        """Configurar pestaña de gráficos según pauta"""
         frame = ctk.CTkFrame(self.tab6)
         frame.pack(fill="both", expand=True, padx=10, pady=10)
 
-        label = ctk.CTkLabel(frame, text="Gráfico de Ingredientes", font=("Helvetica", 16, "bold"))
+        label = ctk.CTkLabel(frame, text="Reportes Estadísticos", font=("Helvetica", 16, "bold"))
         label.pack(pady=20)
 
-        # Botón para generar el gráfico
+        # Frame para selección de tipo de gráfico
+        frame_seleccion = ctk.CTkFrame(frame)
+        frame_seleccion.pack(fill="x", padx=20, pady=10)
+
+        ctk.CTkLabel(frame_seleccion, text="Seleccionar Tipo de Gráfico:", font=("Helvetica", 12, "bold")).pack(pady=5)
+        
+        self.combo_tipo_grafico = ctk.CTkComboBox(
+            frame_seleccion,
+            values=[
+                "Ventas por Fecha (Diario)",
+                "Ventas por Fecha (Semanal)", 
+                "Ventas por Fecha (Mensual)",
+                "Ventas por Fecha (Anual)",
+                "Menús Más Populares",
+                "Uso de Ingredientes"
+            ],
+            width=300
+        )
+        self.combo_tipo_grafico.pack(pady=10)
+        self.combo_tipo_grafico.set("Ventas por Fecha (Diario)")
+
+        # Botón para generar gráfico
         boton_generar = ctk.CTkButton(
             frame, 
-            text="Generar Gráfico de Stock", 
-            command=self.generar_grafico_stock
+            text="Generar Gráfico", 
+            command=self.generar_grafico_seleccionado,
+            fg_color="#1976D2"
         )
         boton_generar.pack(pady=10)
+
 
         # Etiqueta informativa
         info_label = ctk.CTkLabel(
@@ -755,6 +873,36 @@ class AplicacionConPestanas(ctk.CTk):
             text_color="gray"
         )
         info_label.pack(pady=5)
+
+    def generar_grafico_seleccionado(self):
+        """Generar el gráfico según la selección del usuario"""
+        try:
+            seleccion = self.combo_tipo_grafico.get()
+            
+            if seleccion == "Ventas por Fecha (Diario)":
+                ruta_grafico = GeneradorGraficos.generar_grafico_ventas_por_fecha('diario')
+            elif seleccion == "Ventas por Fecha (Semanal)":
+                ruta_grafico = GeneradorGraficos.generar_grafico_ventas_por_fecha('semanal')
+            elif seleccion == "Ventas por Fecha (Mensual)":
+                ruta_grafico = GeneradorGraficos.generar_grafico_ventas_por_fecha('mensual')
+            elif seleccion == "Ventas por Fecha (Anual)":
+                ruta_grafico = GeneradorGraficos.generar_grafico_ventas_por_fecha('anual')
+            elif seleccion == "Menús Más Populares":
+                ruta_grafico = GeneradorGraficos.generar_grafico_menus_populares()
+            elif seleccion == "Uso de Ingredientes":
+                ruta_grafico = GeneradorGraficos.generar_grafico_uso_ingredientes()
+            else:
+                CTkMessagebox(title="Error", message="Selecciona un tipo de gráfico válido", icon="warning")
+                return
+
+            # Mostrar el gráfico
+            ventana_grafico = CTkGraphViewer(self, ruta_grafico, title=f"Gráfico - {seleccion}")
+            ventana_grafico.focus()
+            
+        except ValueError as e:
+            CTkMessagebox(title="Sin Datos", message=str(e), icon="warning")
+        except Exception as e:
+            CTkMessagebox(title="Error", message=f"Error al generar gráfico: {str(e)}", icon="cancel")
 
     def generar_grafico_stock(self):
         try:
