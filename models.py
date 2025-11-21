@@ -16,6 +16,7 @@ class ClienteBD(Base):
     nombre = Column(String, nullable=False)
     rut = Column(String, unique=True)
     telefono = Column(String)
+    correo = Column(String, unique=True)  
     pedidos = relationship("PedidoBD", back_populates="cliente")
 
 class MenuBD(Base):
