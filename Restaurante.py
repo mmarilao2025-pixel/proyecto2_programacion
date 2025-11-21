@@ -779,7 +779,7 @@ class AplicacionConPestanas(ctk.CTk):
         """Ventana emergente para agregar nuevo cliente - CON VALIDACIÓN COMPLETA"""
         ventana_cliente = ctk.CTkToplevel(self)
         ventana_cliente.title("Agregar Nuevo Cliente")
-        ventana_cliente.geometry("400x350")
+        ventana_cliente.geometry("400x650")
         ventana_cliente.transient(self)
         ventana_cliente.grab_set()
 
