@@ -16,6 +16,7 @@ from ctk_pdf_viewer import CTkPDFViewer
 import os
 from tkinter.font import nametofont
 from grafico_ingredientes import generar_grafico_ingredientes, CTkGraphViewer
+from conexion import get_session
 
 
 class AplicacionConPestanas(ctk.CTk):
@@ -490,16 +491,33 @@ class AplicacionConPestanas(ctk.CTk):
             return
 
         try:
-            boleta_facade = BoletaFacade(self.pedido)  # crea la instancia de boleta con el pedido actual
-            pdf_path = boleta_facade.generar_boleta()  # total y generar la boleta
+            # OBTENER CLIENTE SELECCIONADO
+            cliente_rut = self.obtener_rut_cliente_seleccionado()
+            
+            # PROCESAR COMPRA CON CLIENTE
+            pedido_procesado = self.pedido.procesar_compra(cliente_rut)
+            
+            if not pedido_procesado:
+                CTkMessagebox(title="Error", message="No se pudo procesar la compra. Verifique el stock.", icon="cancel")
+                return
 
-            # Notificar al usuario
-            CTkMessagebox(title="Boleta Generada",message="Boleta generada en: boleta.pdf",icon="info")
+            # GENERAR BOLETA
+            boleta_facade = BoletaFacade(self.pedido)
+            pdf_path = boleta_facade.generar_boleta()
 
-            # Limpiar el pedido después de generar la boleta
+            # Mostrar mensaje de éxito con info del cliente
+            cliente_nombre = self.combo_clientes.get().split("(")[0].strip()
+            CTkMessagebox(
+                title="Boleta Generada", 
+                message=f"Boleta para {cliente_nombre} generada en: boleta.pdf", 
+                icon="info"
+            )
+
+            # Limpiar pedido
             self.pedido.menus = []
             self.actualizar_treeview_pedido()
-            self.label_total.configure(text=f"Total: $0.00")
+            self.label_total.configure(text="Total: $0.00")
+            self.cargar_tarjetas_disponibles()  # Actualizar disponibilidad
 
         except Exception as e:
             CTkMessagebox(title="Error al Generar Boleta", message=f"Ocurrió un error al generar la boleta.\n{e}", icon="cancel")
@@ -532,6 +550,52 @@ class AplicacionConPestanas(ctk.CTk):
 
         self.boton_generar_boleta=ctk.CTkButton(frame_inferior,text="Generar Boleta",command=self.generar_boleta)
         self.boton_generar_boleta.pack(side="bottom",pady=10)
+
+            # AGREGAR: Selección de cliente
+        frame_cliente = ctk.CTkFrame(frame_intermedio)
+        frame_cliente.pack(side="left", fill="x", padx=10, pady=5)
+        
+        label_cliente = ctk.CTkLabel(frame_cliente, text="Cliente:")
+        label_cliente.pack(side="left", padx=5)
+        
+        self.combo_clientes = ctk.CTkComboBox(
+            frame_cliente, 
+            values=self.obtener_clientes_combo(),
+            width=200
+        )
+        self.combo_clientes.pack(side="left", padx=5)
+        
+        self.boton_actualizar_clientes = ctk.CTkButton(
+            frame_cliente, 
+            text="Actualizar", 
+            command=self.actualizar_lista_clientes,
+            width=80
+        )
+        self.boton_actualizar_clientes.pack(side="left", padx=5)
+
+    def obtener_clientes_combo(self):
+        db = next(get_session())
+        try:
+            from crud.cliente_crud import ClienteCRUD
+            clientes = ClienteCRUD.leer_clientes(db)
+            return [f"{c.nombre} ({c.rut})" for c in clientes] if clientes else ["Cliente General (11111111-1)"]
+        except Exception as e:
+            print(f"Error al cargar clientes: {e}")
+            return ["Cliente General (11111111-1)"]
+        finally:
+            db.close()
+
+    def actualizar_lista_clientes(self):
+        """Actualiza la lista de clientes en el ComboBox"""
+        self.combo_clientes.configure(values=self.obtener_clientes_combo())
+        CTkMessagebox(title="Éxito", message="Lista de clientes actualizada", icon="info")
+
+    def obtener_rut_cliente_seleccionado(self):
+        """Extrae el RUT del cliente seleccionado en el ComboBox"""
+        seleccion = self.combo_clientes.get()
+        if seleccion and "(" in seleccion and ")" in seleccion:
+            return seleccion.split("(")[1].split(")")[0]
+        return "11111111-1"  # Valor por defecto
 
     def crear_tarjeta(self, menu):
         num_tarjetas = len(self.menus_creados)
