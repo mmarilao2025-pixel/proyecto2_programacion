@@ -1,47 +1,67 @@
-from Ingrediente import Ingrediente
-from typing import List, Optional, Dict
+from sqlalchemy.orm import Session
+from models import IngredienteBD
 import crud.ingrediente_crud as ingrediente_crud
-
+from conexion import get_session
 
 class Stock:
-    def __init__(self): #porque se guarda en la base de datos 
+    def __init__(self):
         pass
 
-    def agregar_o_actualizar_ingrediente (self, nombre:str,cantidad: float)-> Optional[ingredienteBD]:
-        #valida que el nombre no este vacio y la cantidad sea positiva
+    def _get_db_session(self):
+        """Obtener sesión de base de datos"""
+        return next(get_session())
+
+    def agregar_o_actualizar_ingrediente(self, nombre: str, unidad: str, cantidad: float) -> bool:
+        """Agrega o actualiza ingrediente en la base de datos"""
         if not nombre.strip():
-            print(" El nombre del ingrediente no puede estar vacío.")
-            return None
-        #validacion: la cantidad debe ser positiva y mayor que cero 
+            raise ValueError("El nombre del ingrediente no puede estar vacío.")
+        
         if cantidad <= 0:
-            print(" La cantidad debe ser un número positivo.")
-            return None
+            raise ValueError("La cantidad debe ser un número positivo.")
         
+        db = self._get_db_session()
         try:
-
-            ingrediente_db=ingrediente_crud.crear_o_actualizar_ingrediente(nombre,cantidad)
-            if ingrediente_db:
-                print(f"Stock de '{nombre}' agregado/actualizado a {ingrediente_db.cantidad}.")
-            return ingrediente_db
-        except Exception as e:
-            print(f" Error al agregar/actualizar el ingrediente: {e}")
-            return None
-        
-
-    def obtener_ingrediente(self, nombre_ingrediente:str)-> Optional[ingredienteBD]:
-       #busca un ingrediente por su nombre en la base de datos
-        return ingrediente_crud.obtener_ingrediente_por_nombre(nombre_ingrediente)
-    
-
-    def eliminar_ingrediente(self, nombre_ingrediente:str):
-        #elimina un ingrediente por nombre usando el ORM
-        try:
-            if ingrediente_crud.eliminar_ingrediente_db(nombre_ingrediente):
-                print(f"Ingrediente '{nombre_ingrediente}' eliminado del stock.")
+            # Buscar si ya existe
+            ingrediente_existente = ingrediente_crud.leer_ingrediente_por_nombre(db, nombre)
+            
+            if ingrediente_existente:
+                # Actualizar
+                ingrediente_crud.actualizar_ingrediente(
+                    db, nombre, nueva_cantidad=cantidad, nueva_unidad=unidad
+                )
             else:
-                print(f"Ingrediente '{nombre_ingrediente}' no encontrado.")
+                # Crear nuevo
+                ingrediente_crud.crear_ingrediente(db, nombre, unidad, cantidad)
+            
+            db.commit()
+            return True
+            
         except Exception as e:
-            print(f" Error al eliminar el ingrediente: {e}")
+            db.rollback()
+            raise e
+        finally:
+            db.close()
+
+    def obtener_todos_los_ingredientes(self):
+        """Obtiene todos los ingredientes para mostrar en treeview"""
+        db = self._get_db_session()
+        try:
+            return ingrediente_crud.leer_ingredientes(db)
+        finally:
+            db.close()
+
+    def eliminar_ingrediente(self, nombre: str) -> bool:
+        """Elimina ingrediente por nombre"""
+        db = self._get_db_session()
+        try:
+            resultado = ingrediente_crud.eliminar_ingrediente(db, nombre)
+            db.commit()
+            return resultado
+        except Exception as e:
+            db.rollback()
+            raise e
+        finally:
+            db.close()
 
     def descontar_stock(self, requerimientos: Dict[str, float]) -> bool:
         #verifica y descuenta el stock segun los requerimientos del menu
