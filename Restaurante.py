@@ -903,7 +903,7 @@ class AplicacionConPestanas(ctk.CTk):
             clientes = ClienteCRUD.leer_clientes(db)
             
             for cliente in clientes:
-                tree.insert("", "end", values=(cliente.rut, cliente.nombre, cliente.email or "", cliente.telefono or ""))
+                tree.insert("", "end", values=(cliente.rut, cliente.nombre, cliente.correo or "", cliente.telefono or ""))
                 
             if not clientes:
                 tree.insert("", "end", values=("No hay clientes registrados", "", "", ""))
