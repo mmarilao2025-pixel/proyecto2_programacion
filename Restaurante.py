@@ -372,8 +372,6 @@ class AplicacionConPestanas(ctk.CTk):
     def eliminar_ingrediente(self):
         pass
 
-    def actualizar_treeview(self):
-        pass
 
 
 if __name__ == "__main__":
