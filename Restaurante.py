@@ -917,24 +917,232 @@ class AplicacionConPestanas(ctk.CTk):
         ctk.CTkButton(ventana_lista, text="Cerrar", command=ventana_lista.destroy).pack(pady=10)
 
     def configurar_pestana_clientes(self):
-        """Configurar la pestaña de gestión de clientes"""
+        """Configurar la pestaña de gestión de clientes - CON LISTA DIRECTA"""
         label = ctk.CTkLabel(self.tab7, text="Gestión de Clientes", font=("Helvetica", 16, "bold"))
         label.pack(pady=20)
 
+        # Botón para agregar nuevo cliente
         boton_agregar_cliente = ctk.CTkButton(
             self.tab7,
             text="Agregar Nuevo Cliente",
-            command=self.agregar_nuevo_cliente
+            command=self.agregar_nuevo_cliente,
+            fg_color="#1976D2",
+            text_color="white"
         )
         boton_agregar_cliente.pack(pady=10)
 
-        boton_ver_clientes = ctk.CTkButton(
-            self.tab7,
-            text="Ver Lista de Clientes",
-            command=self.ver_lista_clientes
-        )
-        boton_ver_clientes.pack(pady=10)
+        # Frame para la tabla de clientes
+        frame_tabla = ctk.CTkFrame(self.tab7)
+        frame_tabla.pack(fill="both", expand=True, padx=10, pady=10)
 
+        # Crear treeview para mostrar la lista de clientes
+        self.tree_clientes = ttk.Treeview(frame_tabla, columns=("RUT", "Nombre", "Email", "Teléfono"), show="headings", height=15)
+        
+        # Configurar encabezados
+        self.tree_clientes.heading("RUT", text="RUT")
+        self.tree_clientes.heading("Nombre", text="Nombre")
+        self.tree_clientes.heading("Email", text="Email")
+        self.tree_clientes.heading("Teléfono", text="Teléfono")
+
+        # Configurar anchos de columnas
+        self.tree_clientes.column("RUT", width=120, anchor="center")
+        self.tree_clientes.column("Nombre", width=150, anchor="w")
+        self.tree_clientes.column("Email", width=180, anchor="w")
+        self.tree_clientes.column("Teléfono", width=120, anchor="center")
+
+        # Scrollbar para la tabla
+        scrollbar = ttk.Scrollbar(frame_tabla, orient="vertical", command=self.tree_clientes.yview)
+        self.tree_clientes.configure(yscrollcommand=scrollbar.set)
+        
+        # Empaquetar elementos
+        self.tree_clientes.pack(side="left", fill="both", expand=True, padx=(0, 5))
+        scrollbar.pack(side="right", fill="y")
+
+        # Botón para actualizar la lista
+        boton_actualizar = ctk.CTkButton(
+            self.tab7,
+            text="Actualizar Lista",
+            command=self.actualizar_lista_clientes_directa,
+            fg_color="#28a745",
+            text_color="white"
+        )
+        boton_actualizar.pack(pady=10)
+
+        # Cargar la lista de clientes automáticamente al abrir la pestaña
+        self.actualizar_lista_clientes_directa()
+
+    def configurar_pestana_clientes(self):
+        """Configurar la pestaña de gestión de clientes - CON LISTA DIRECTA Y ELIMINAR"""
+        label = ctk.CTkLabel(self.tab7, text="Gestión de Clientes", font=("Helvetica", 16, "bold"))
+        label.pack(pady=20)
+
+        # Frame para los botones de acción
+        frame_botones = ctk.CTkFrame(self.tab7)
+        frame_botones.pack(fill="x", padx=10, pady=10)
+
+        # Botón para agregar nuevo cliente
+        boton_agregar_cliente = ctk.CTkButton(
+            frame_botones,
+            text="Agregar Nuevo Cliente",
+            command=self.agregar_nuevo_cliente,
+            fg_color="#1976D2",
+            text_color="white"
+        )
+        boton_agregar_cliente.pack(side="left", padx=5)
+
+        # Botón para eliminar cliente seleccionado
+        self.boton_eliminar_cliente = ctk.CTkButton(
+            frame_botones,
+            text="Eliminar Cliente Seleccionado",
+            command=self.eliminar_cliente_seleccionado,
+            fg_color="#dc3545",
+            text_color="white",
+        )
+        self.boton_eliminar_cliente.pack(side="left", padx=5)
+
+        # Botón para actualizar la lista
+        boton_actualizar = ctk.CTkButton(
+            frame_botones,
+            text="Actualizar Lista",
+            command=self.actualizar_lista_clientes_directa,
+            fg_color="#28a745",
+            text_color="white"
+        )
+        boton_actualizar.pack(side="left", padx=5)
+
+        # Frame para la tabla de clientes
+        frame_tabla = ctk.CTkFrame(self.tab7)
+        frame_tabla.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # Crear treeview para mostrar la lista de clientes
+        self.tree_clientes = ttk.Treeview(frame_tabla, columns=("RUT", "Nombre", "Email", "Teléfono"), show="headings", height=15)
+        
+        # Configurar encabezados
+        self.tree_clientes.heading("RUT", text="RUT")
+        self.tree_clientes.heading("Nombre", text="Nombre")
+        self.tree_clientes.heading("Email", text="Email")
+        self.tree_clientes.heading("Teléfono", text="Teléfono")
+
+        # Configurar anchos de columnas
+        self.tree_clientes.column("RUT", width=120, anchor="center")
+        self.tree_clientes.column("Nombre", width=150, anchor="w")
+        self.tree_clientes.column("Email", width=180, anchor="w")
+        self.tree_clientes.column("Teléfono", width=120, anchor="center")
+
+        # Scrollbar para la tabla
+        scrollbar = ttk.Scrollbar(frame_tabla, orient="vertical", command=self.tree_clientes.yview)
+        self.tree_clientes.configure(yscrollcommand=scrollbar.set)
+        
+        # Empaquetar elementos
+        self.tree_clientes.pack(side="left", fill="both", expand=True, padx=(0, 5))
+        scrollbar.pack(side="right", fill="y")
+
+        # Vincular evento de selección para habilitar/deshabilitar botón eliminar
+        self.tree_clientes.bind('<<TreeviewSelect>>', self.on_cliente_seleccionado)
+
+        # Cargar la lista de clientes automáticamente al abrir la pestaña
+        self.actualizar_lista_clientes_directa()
+
+    def on_cliente_seleccionado(self, event):
+        """Habilitar botón eliminar cuando se selecciona un cliente"""
+        seleccion = self.tree_clientes.selection()
+        if seleccion:
+            self.boton_eliminar_cliente.configure(state="normal")
+        else:
+            self.boton_eliminar_cliente.configure(state="disabled")
+
+    def eliminar_cliente_seleccionado(self):
+        """Eliminar el cliente seleccionado de la lista"""
+        seleccion = self.tree_clientes.selection()
+        
+        if not seleccion:
+            CTkMessagebox(title="Error", message="Por favor selecciona un cliente para eliminar.", icon="warning")
+            return
+
+        item = seleccion[0]
+        valores = self.tree_clientes.item(item, 'values')
+        rut_cliente = valores[0]
+        nombre_cliente = valores[1]
+
+        # Confirmar eliminación
+        respuesta = CTkMessagebox(
+            title="Confirmar Eliminación",
+            message=f"¿Estás seguro de que quieres eliminar al cliente:\n\n{nombre_cliente}\nRUT: {rut_cliente}?",
+            icon="question",
+            option_1="Cancelar",
+            option_2="Eliminar"
+        )
+
+        if respuesta.get() != "Eliminar":
+            return
+
+        try:
+            db = next(get_session())
+            from crud.cliente_crud import ClienteCRUD
+            
+            # Eliminar cliente de la base de datos
+            ClienteCRUD.borrar_cliente(db, rut_cliente)
+            
+            CTkMessagebox(
+                title="Éxito", 
+                message=f"Cliente '{nombre_cliente}' eliminado correctamente.", 
+                icon="info"
+            )
+            
+            # Actualizar la lista
+            self.actualizar_lista_clientes_directa()
+            
+            # Actualizar también el combobox en la pestaña de Pedido
+            self.actualizar_lista_clientes()
+                
+        except ValueError as e:
+            CTkMessagebox(title="Error", message=str(e), icon="warning")
+        except Exception as e:
+            CTkMessagebox(title="Error", message=f"Error al eliminar cliente: {str(e)}", icon="cancel")
+        finally:
+            db.close()
+
+    def actualizar_lista_clientes_directa(self):
+        """Actualizar la lista de clientes en la tabla directamente"""
+        try:
+            # Limpiar tabla existente
+            for item in self.tree_clientes.get_children():
+                self.tree_clientes.delete(item)
+
+            # Deshabilitar botón eliminar (ninguna selección)
+            self.boton_eliminar_cliente.configure(state="disabled")
+
+            # Obtener clientes de la base de datos
+            db = next(get_session())
+            from crud.cliente_crud import ClienteCRUD
+            clientes = ClienteCRUD.leer_clientes(db)
+            
+            # Insertar clientes en la tabla
+            if clientes:
+                for cliente in clientes:
+                    self.tree_clientes.insert("", "end", values=(
+                        cliente.rut, 
+                        cliente.nombre, 
+                        cliente.correo or "No especificado", 
+                        cliente.telefono or "No especificado"
+                    ))
+            else:
+                # Mostrar mensaje si no hay clientes
+                self.tree_clientes.insert("", "end", values=(
+                    "No hay clientes", 
+                    "Registra el primer cliente", 
+                    "Usa el botón 'Agregar Nuevo Cliente'", 
+                    ""
+                ))
+                
+        except Exception as e:
+            CTkMessagebox(
+                title="Error", 
+                message=f"Error al cargar clientes: {str(e)}", 
+                icon="cancel"
+            )
+        finally:
+            db.close()
 
     def verificar_modelo_cliente(self):
         """Función para verificar la estructura del modelo ClienteBD"""
